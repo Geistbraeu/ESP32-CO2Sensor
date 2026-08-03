@@ -21,10 +21,10 @@ constexpr unsigned long kCustomHttpIntervalMs = 30000;
 constexpr char kDefaultDeviceName[] = "ESP32 CO2 Sensor";
 constexpr char kWifiApPassword[] = "12345678";
 
-constexpr char kFirmwareVersion[] = "1.0.0";
+constexpr char kFirmwareVersion[] = "1.0.1";
 constexpr char kFirmwareBuildDate[] = __DATE__ " " __TIME__;
 
-constexpr char kDefaultThingSpeakUrl[] = "http://api.thingspeak.com/update";
+constexpr char kDefaultThingSpeakUrl[] = "https://api.thingspeak.com/update";
 constexpr char kDefaultCustomHttpMethod[] = "POST";
 constexpr char kDefaultCustomHttpContentType[] = "application/json";
 constexpr char kDefaultCustomHttpBodyTemplate[] = "{\"ppm\":{ppm}}";
