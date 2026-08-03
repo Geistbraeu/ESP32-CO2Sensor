@@ -49,6 +49,39 @@ void drawCenteredText(int y, const String &text, uint8_t size) {
     display.print(text);
 }
 
+void drawPpmReading(int y, const String &valueText) {
+    constexpr uint8_t valueTextSize = 3;
+    constexpr uint8_t unitTextSize = 1;
+    constexpr int16_t unitGap = 4;
+
+    int16_t valueX1 = 0;
+    int16_t valueY1 = 0;
+    uint16_t valueW = 0;
+    uint16_t valueH = 0;
+    display.setTextSize(valueTextSize);
+    display.getTextBounds(valueText, 0, y, &valueX1, &valueY1, &valueW, &valueH);
+
+    String unitText = "ppm";
+    int16_t unitX1 = 0;
+    int16_t unitY1 = 0;
+    uint16_t unitW = 0;
+    uint16_t unitH = 0;
+    display.setTextSize(unitTextSize);
+    display.getTextBounds(unitText, 0, y, &unitX1, &unitY1, &unitW, &unitH);
+
+    int16_t totalWidth = static_cast<int16_t>(valueW + unitGap + unitW);
+    int16_t startX = static_cast<int16_t>((appconfig::kOledWidth - totalWidth) / 2);
+    int16_t unitY = y + static_cast<int16_t>((valueTextSize - unitTextSize) * 4);
+
+    display.setTextSize(valueTextSize);
+    display.setCursor(startX, y);
+    display.print(valueText);
+
+    display.setTextSize(unitTextSize);
+    display.setCursor(startX + static_cast<int16_t>(valueW) + unitGap, unitY);
+    display.print(unitText);
+}
+
 void drawRightAlignedText(int y, const String &text, uint8_t size, int16_t rightMargin = 0) {
     display.setTextSize(size);
     int16_t x1 = 0;
@@ -139,8 +172,7 @@ void loop() {
     display.drawLine(0, 15, appconfig::kOledWidth - 1, 15, SSD1306_WHITE);
 
     String ppmValue = state.lastValidPpm > 0 ? String(state.co2Ppm) : String("---");
-    String ppmText = ppmValue + " ppm";
-    drawCenteredText(22, ppmText, 3);
+    drawPpmReading(22, ppmValue);
 
     String ipText;
     if (state.wifiConnected) {

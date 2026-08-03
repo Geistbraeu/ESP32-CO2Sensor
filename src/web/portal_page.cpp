@@ -105,7 +105,7 @@ namespace webpage {String render() {
         html += "<div class=setting-group><label class=setting-label>Send Interval (seconds, min 15)</label><div class=setting-row><input type=number min=15 name=customHttpIntervalSeconds value='" + String(config.customHttpIntervalSeconds) + "'></div></div>";
         html += "<div class=footer-actions><button class=btn-set type=submit>Save Custom HTTP</button></div><p class=hint>In custom HTTP use <b>{ppm}</b> in URL or body. Intervals are saved per provider.</p></div></form></div>";
 
-        html += "<div class=tab-panel id=tab-firmware><div class=stack><div class=setting-group><label class=setting-label>Firmware version</label><div class=setting-row><input value='" + escapeHtml(appconfig::kFirmwareVersion) + "' readonly></div></div><div class=setting-group><label class=setting-label>Build date</label><div class=setting-row><input value='" + escapeHtml(appconfig::firmwareBuildDateString()) + "' readonly></div></div><form action=/update method=post enctype='multipart/form-data'><div class=setting-group><label class=setting-label>Firmware upload</label><input type=file name=update accept='.bin'></div><div class=footer-actions><button class=btn-set type=submit>Upload OTA</button></div><p class=hint>Upload a compiled .bin file. Device will reboot after successful flash.</p></div></form></div>";
+        html += "<div class=tab-panel id=tab-firmware><div class=stack><div class=setting-group><label class=setting-label>Firmware version</label><div class=setting-row><input id=firmware-version-value value='" + escapeHtml(appconfig::kFirmwareVersion) + "' readonly></div></div><div class=setting-group><label class=setting-label>Build date</label><div class=setting-row><input id=firmware-build-date-value value='" + escapeHtml(appconfig::firmwareBuildDateString()) + "' readonly></div></div><form id=firmware-upload-form action=/update method=post enctype='multipart/form-data'><div class=setting-group><label class=setting-label>Firmware upload</label><input type=file name=update accept='.bin'></div><div class=footer-actions><button class=btn-set type=submit>Upload OTA</button></div><p class=hint>Upload a compiled .bin file. Device will reboot after successful flash.</p></div></form></div>";
 
         html += "</div>";
 
@@ -122,6 +122,78 @@ function confirmCalibration() {
     if (window.confirm(message)) {
         const form = document.getElementById('calibrate-form');
         if (form) form.submit();
+    }
+}
+
+let firmwareUploadPending = false;
+let firmwareUploadApiDownSeen = false;
+let firmwareUploadSuccessTimer = null;
+const currentFirmwareVersion = document.getElementById('firmware-version-value')?.value || '';
+const currentFirmwareBuildDate = document.getElementById('firmware-build-date-value')?.value || '';
+
+function setStatusMessage(text, className) {
+    const statusMessage = document.getElementById('status-message');
+    if (!statusMessage) return;
+    statusMessage.style.display = 'block';
+    statusMessage.textContent = text;
+    statusMessage.className = 'status-message ' + className;
+}
+
+function clearStatusMessage() {
+    const statusMessage = document.getElementById('status-message');
+    if (!statusMessage) return;
+    statusMessage.style.display = 'none';
+    statusMessage.textContent = '';
+}
+
+function clearFirmwareUploadState() {
+    firmwareUploadPending = false;
+    firmwareUploadApiDownSeen = false;
+    if (firmwareUploadSuccessTimer !== null) {
+        window.clearTimeout(firmwareUploadSuccessTimer);
+        firmwareUploadSuccessTimer = null;
+    }
+}
+
+async function uploadFirmware(event) {
+    event.preventDefault();
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const submitButton = form.querySelector('button[type=submit]');
+
+    if (submitButton) submitButton.disabled = true;
+
+    try {
+        const response = await fetch(form.action, {
+            method: 'POST',
+            body: formData,
+            cache: 'no-store'
+        });
+
+        const responseText = await response.text();
+        if (!response.ok || responseText.trim() !== 'OK') {
+            throw new Error(responseText || 'Upload failed');
+        }
+
+        firmwareUploadPending = true;
+        firmwareUploadApiDownSeen = false;
+        if (firmwareUploadSuccessTimer !== null) {
+            window.clearTimeout(firmwareUploadSuccessTimer);
+        }
+        firmwareUploadSuccessTimer = window.setTimeout(() => {
+            if (firmwareUploadPending) {
+                clearFirmwareUploadState();
+                clearStatusMessage();
+            }
+        }, 10000);
+        setStatusMessage('Firmware uploaded. Device is rebooting.', 'success');
+    } catch (error) {
+        clearFirmwareUploadState();
+        setStatusMessage('Firmware upload failed.', 'error');
+        console.warn(error);
+    } finally {
+        if (submitButton) submitButton.disabled = false;
     }
 }
 
@@ -170,14 +242,31 @@ async function refreshLiveData() {
             }
         }
 
-        if (statusMessage && data.webMessage) {
-            statusMessage.style.display = 'block';
-            statusMessage.textContent = data.webMessage;
-            statusMessage.className = 'status-message success';
+        if (data.webMessage) {
+            clearFirmwareUploadState();
+            setStatusMessage(data.webMessage, 'success');
+        } else if (firmwareUploadPending) {
+            const firmwareChanged = currentFirmwareVersion && currentFirmwareVersion !== (data.firmwareVersion || '')
+                || currentFirmwareBuildDate && currentFirmwareBuildDate !== (data.firmwareBuildDate || '');
+
+            if (firmwareUploadApiDownSeen || firmwareChanged) {
+                clearFirmwareUploadState();
+                clearStatusMessage();
+            }
+        } else {
+            clearStatusMessage();
         }
     } catch (error) {
+        if (firmwareUploadPending) {
+            firmwareUploadApiDownSeen = true;
+        }
         console.warn(error);
     }
+}
+
+const firmwareUploadForm = document.getElementById('firmware-upload-form');
+if (firmwareUploadForm) {
+    firmwareUploadForm.addEventListener('submit', uploadFirmware);
 }
 
 refreshLiveData();
