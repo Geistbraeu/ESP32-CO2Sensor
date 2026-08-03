@@ -10,7 +10,7 @@
 namespace {
 String replacePpmToken(String value) {
     RuntimeSnapshot state = getRuntimeSnapshot();
-    value.replace("{ppm}", String(state.co2Ppm));
+    value.replace("{ppm}", String(state.lastValidPpm));
     return value;
 }
 

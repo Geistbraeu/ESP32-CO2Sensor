@@ -63,11 +63,6 @@ void setup() {
   displayui::begin();
   cloudmanager::begin();
 
-  if (lockAppState()) {
-    gAppState.webMessage = "Ready";
-    unlockAppState();
-  }
-
   xTaskCreatePinnedToCore(networkTask, "networkTask", 6144, nullptr, 2, nullptr, kNetworkCore);
   xTaskCreatePinnedToCore(sensorTask, "sensorTask", 6144, nullptr, 2, nullptr, kDeviceCore);
   xTaskCreatePinnedToCore(displayTask, "displayTask", 6144, nullptr, 2, nullptr, kDeviceCore);

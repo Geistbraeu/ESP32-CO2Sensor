@@ -81,7 +81,11 @@ void loop() {
 
     display.setTextSize(1);
     display.setCursor(0, 56);
-    if (state.sensorConnected) {
+    if (state.sensorWarmingUp) {
+        display.print("WARMUP ");
+        display.print(state.sensorWarmupRemainingSec);
+        display.print("s");
+    } else if (state.sensorConnected) {
         display.print("ppm");
     } else if (state.sensorError.length() > 0) {
         display.print(clipText(state.sensorError, 21));

@@ -31,7 +31,7 @@ bool send() {
     } else if (!url.endsWith("&") && !url.endsWith("?")) {
         url += "&";
     }
-    url += "api_key=" + config.thingSpeakApiKey + "&field1=" + String(state.co2Ppm);
+    url += "api_key=" + config.thingSpeakApiKey + "&field1=" + String(state.lastValidPpm);
 
     HTTPClient http;
     WiFiClient client;

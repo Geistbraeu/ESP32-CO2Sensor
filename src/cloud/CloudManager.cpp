@@ -21,7 +21,17 @@ void begin() {
 
 void loop() {
     AppState state = snapshotAppState();
-    if (WiFi.status() != WL_CONNECTED || state.lastValidPpm == 0) {
+    if (WiFi.status() != WL_CONNECTED) {
+        return;
+    }
+
+    if (state.sensorWarmingUp || !state.sensorConnected || state.co2Ppm < 250 || state.co2Ppm > 10000) {
+        if (lockAppState()) {
+            if (state.sensorWarmingUp) {
+                gAppState.cloudStatus = "Sensor warm-up";
+            }
+            unlockAppState();
+        }
         return;
     }
 

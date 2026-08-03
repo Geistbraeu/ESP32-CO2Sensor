@@ -12,6 +12,8 @@ struct AppState {
     String apAddress;
 
     bool sensorConnected = false;
+    bool sensorWarmingUp = false;
+    uint16_t sensorWarmupRemainingSec = 0;
     uint16_t co2Ppm = 0;
     uint16_t lastValidPpm = 0;
     String sensorError;
