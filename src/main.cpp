@@ -1,3 +1,4 @@
+#include "app_config.h"
 #include "app_state.h"
 #include "cloud/CloudManager.h"
 #include "display/OledDisplay.h"
@@ -22,10 +23,22 @@ void networkTask(void *parameter) {
   }
 }
 
-void deviceTask(void *parameter) {
+void sensorTask(void *parameter) {
   (void)parameter;
   for (;;) {
     sensor::loop();
+    SettingsData config = settings::get();
+    unsigned long delayMs = config.sensorReadIntervalMs;
+    if (delayMs == 0) {
+      delayMs = appconfig::kSensorReadIntervalMs;
+    }
+    vTaskDelay(pdMS_TO_TICKS(delayMs));
+  }
+}
+
+void displayTask(void *parameter) {
+  (void)parameter;
+  for (;;) {
     displayui::loop();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -56,7 +69,8 @@ void setup() {
   }
 
   xTaskCreatePinnedToCore(networkTask, "networkTask", 6144, nullptr, 2, nullptr, kNetworkCore);
-  xTaskCreatePinnedToCore(deviceTask, "deviceTask", 6144, nullptr, 2, nullptr, kDeviceCore);
+  xTaskCreatePinnedToCore(sensorTask, "sensorTask", 6144, nullptr, 2, nullptr, kDeviceCore);
+  xTaskCreatePinnedToCore(displayTask, "displayTask", 6144, nullptr, 2, nullptr, kDeviceCore);
 }
 
 void loop() {

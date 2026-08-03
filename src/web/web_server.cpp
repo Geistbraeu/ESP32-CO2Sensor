@@ -9,6 +9,7 @@
 #include "app_config.h"
 #include "app_view_models.h"
 #include "app_state.h"
+#include "cloud/CloudManager.h"
 
 namespace {
 WebServer server(80);
@@ -22,6 +23,11 @@ String checkedAttr(bool enabled) {
 
 String emptyIfBlank(const String &value) {
     return value.length() > 0 ? value : String("-");
+}
+
+unsigned long parseUnsignedLongArg(const String &value, unsigned long fallback) {
+    unsigned long parsed = static_cast<unsigned long>(value.toInt());
+    return parsed > 0 ? parsed : fallback;
 }
 
 String escapeHtml(String value) {
@@ -41,9 +47,24 @@ String jsonEscape(String value) {
     return value;
 }
 
+String lastSyncLabel(unsigned long lastSyncMs, unsigned long nowMs) {
+    if (lastSyncMs == 0 || nowMs < lastSyncMs) {
+        return String("Last sync: -");
+    }
+
+    unsigned long elapsedSeconds = (nowMs - lastSyncMs) / 1000UL;
+    if (elapsedSeconds < 60UL) {
+        return String("Last sync: ") + String(elapsedSeconds) + "s ago";
+    }
+
+    unsigned long elapsedMinutes = elapsedSeconds / 60UL;
+    return String("Last sync: ") + String(elapsedMinutes) + "m ago";
+}
+
 String statusJson() {
     SettingsSnapshot config = getSettingsSnapshot();
     RuntimeSnapshot state = getRuntimeSnapshot();
+    unsigned long nowMs = millis();
     String json = "{";
     json += "\"deviceName\":\"" + jsonEscape(config.deviceName) + "\",";
     json += "\"wifiConnected\":" + String(state.wifiConnected ? "true" : "false") + ",";
@@ -56,6 +77,14 @@ String statusJson() {
     json += "\"cloudStatus\":\"" + jsonEscape(state.cloudStatus) + "\",";
     json += "\"cloudError\":\"" + jsonEscape(state.cloudError) + "\",";
     json += "\"webMessage\":\"" + jsonEscape(state.webMessage) + "\"";
+    json += ",\"sensorReadIntervalMs\":" + String(config.sensorReadIntervalMs);
+    json += ",\"thingSpeakIntervalSeconds\":" + String(config.thingSpeakIntervalSeconds);
+    json += ",\"thingSpeakLastSyncMs\":" + String(cloudmanager::lastThingSpeakSyncMs());
+    json += ",\"customHttpIntervalSeconds\":" + String(config.customHttpIntervalSeconds);
+    json += ",\"customHttpLastSyncMs\":" + String(cloudmanager::lastCustomHttpSyncMs());
+    json += ",\"nowMs\":" + String(nowMs);
+    json += ",\"firmwareVersion\":\"" + jsonEscape(appconfig::kFirmwareVersion) + "\"";
+    json += ",\"firmwareBuildDate\":\"" + jsonEscape(appconfig::kFirmwareBuildDate) + "\"";
     json += "}";
     return json;
 }
@@ -63,6 +92,7 @@ String statusJson() {
 String pageHtml() {
     SettingsSnapshot config = getSettingsSnapshot();
     RuntimeSnapshot state = getRuntimeSnapshot();
+    unsigned long nowMs = millis();
     String html;
         html.reserve(22000);
         html += R"HTML(<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">)HTML";
@@ -90,13 +120,33 @@ String pageHtml() {
 
         html += "<div class=tabs-body>";
 
-        html += "<div class='tab-panel active' id=tab-main><form action=/api method=post><div class=grid><div class=setting-group><label class=setting-label>Device name</label><div class=setting-row><input name=deviceName value='" + escapeHtml(config.deviceName) + "'><button class=btn-set type=submit>Save</button></div></div><div class=setting-group><label class=setting-label>CO2 sensor status</label><div class=setting-row><input value='" + escapeHtml(state.sensorConnected ? "Connected" : (state.sensorError.length() > 0 ? state.sensorError : "Waiting")) + "' readonly></div></div></div><div class=setting-group><label class=setting-label>Sensor value</label><div class=setting-row><input value='" + String(state.co2Ppm > 0 ? state.co2Ppm : state.lastValidPpm) + " ppm' readonly></div></div></form><hr class=divider><div class=section-title>Live data</div><div class=muted>Values refresh every second from <code>/api</code>.</div></div>";
+        html += "<div class='tab-panel active' id=tab-main><form action=/api method=post><div class=grid><div class=setting-group><label class=setting-label>Device name</label><div class=setting-row><input name=deviceName value='" + escapeHtml(config.deviceName) + "'><button class=btn-set type=submit>Save</button></div></div><div class=setting-group><label class=setting-label>Sensor read interval, ms</label><div class=setting-row><input type=number min=100 name=sensorReadIntervalMs value='" + String(config.sensorReadIntervalMs) + "'></div><p class=hint>Controls how often the sensor task polls the CO2 sensor.</p></div></div></form><hr class=divider><div class=section-title>Main</div><div class=muted>CO2 value and sensor status are shown in the cards above.</div></div>";
 
         html += "<div class=tab-panel id=tab-wifi><form action=/api method=post><div class=stack><div class=setting-group><label class=setting-label>Wi-Fi SSID</label><input name=wifiSsid value='" + escapeHtml(config.wifiSsid) + "'></div><div class=setting-group><label class=setting-label>Wi-Fi password</label><input type=password name=wifiPassword value='" + escapeHtml(config.wifiPassword) + "'></div><div class=setting-group><label class=setting-label>Device hostname</label><input name=deviceName value='" + escapeHtml(config.deviceName) + "'></div><div class=footer-actions><button class=btn-set type=submit>Save Wi-Fi</button></div><p class=hint>Use the access point if the device is offline. AP is named after the device.</p></div></form></div>";
 
-        html += "<div class=tab-panel id=tab-cloud><form action=/api method=post><div class=stack><div class=setting-group><label class=setting-label><input type=checkbox name=thingSpeakEnabled" + checkedAttr(config.thingSpeakEnabled) + "> ThingSpeak enabled</label><div class=setting-row><input name=thingSpeakApiKey placeholder='API key' value='" + escapeHtml(config.thingSpeakApiKey) + "'></div><div class=setting-row><input name=thingSpeakUrl value='" + escapeHtml(config.thingSpeakUrl) + "'></div></div><div class=setting-group><label class=setting-label><input type=checkbox name=customHttpEnabled" + checkedAttr(config.customHttpEnabled) + "> Custom HTTP enabled</label><div class=setting-row><input name=customHttpMethod value='" + escapeHtml(config.customHttpMethod) + "'></div><div class=setting-row><input name=customHttpUrlTemplate placeholder='URL template with {ppm}' value='" + escapeHtml(config.customHttpUrlTemplate) + "'></div><div class=setting-row><input name=customHttpContentType value='" + escapeHtml(config.customHttpContentType) + "'></div><div class=setting-row><input name=customHttpBodyTemplate placeholder='Body template with {ppm}' value='" + escapeHtml(config.customHttpBodyTemplate) + "'></div></div><div class=footer-actions><button class=btn-set type=submit>Save Cloud</button></div><p class=hint>In custom HTTP use <b>{ppm}</b> in URL or body.</p></div></form></div>";
+        html += "<div class=tab-panel id=tab-cloud>";
 
-        html += "<div class=tab-panel id=tab-firmware><form action=/update method=post enctype='multipart/form-data'><div class=stack><div class=setting-group><label class=setting-label>Firmware upload</label><input type=file name=update></div><div class=footer-actions><button class=btn-set type=submit>Upload OTA</button></div><p class=hint>Upload a compiled .bin file. Device will reboot after successful flash.</p></div></form></div>";
+        html += "<div class=section-title>ThingSpeak</div>";
+        html += "<p class=cloud-last-sync id=ts-last-sync>" + lastSyncLabel(cloudmanager::lastThingSpeakSyncMs(), nowMs) + "</p>";
+        html += "<form action=/api method=post><div class=stack>";
+        html += "<div class=setting-group><label class=setting-label>Logging Enabled</label><div class=setting-row><select name=thingSpeakEnabled><option value=0" + String(config.thingSpeakEnabled ? "" : " selected") + ">Disabled</option><option value=1" + String(config.thingSpeakEnabled ? " selected" : "") + ">Enabled</option></select></div></div>";
+        html += "<div class=setting-group><label class=setting-label>API Key</label><div class=setting-row><input type=text name=thingSpeakApiKey value='" + escapeHtml(config.thingSpeakApiKey) + "' placeholder='ThingSpeak Write API Key'></div></div>";
+        html += "<div class=setting-group><label class=setting-label>Send Interval (seconds, min 15)</label><div class=setting-row><input type=number min=15 name=thingSpeakIntervalSeconds value='" + String(config.thingSpeakIntervalSeconds) + "'></div></div>";
+        html += "<div class=footer-actions><button class=btn-set type=submit>Save ThingSpeak</button></div></div></form>";
+
+        html += "<hr class=divider>";
+        html += "<div class=section-title>Custom HTTP POST</div>";
+        html += "<p class=cloud-last-sync id=http-last-sync>" + lastSyncLabel(cloudmanager::lastCustomHttpSyncMs(), nowMs) + "</p>";
+        html += "<form action=/api method=post><div class=stack>";
+        html += "<div class=setting-group><label class=setting-label>HTTP POST Enabled</label><div class=setting-row><select name=customHttpEnabled><option value=0" + String(config.customHttpEnabled ? "" : " selected") + ">Disabled</option><option value=1" + String(config.customHttpEnabled ? " selected" : "") + ">Enabled</option></select></div></div>";
+        html += "<div class=setting-group><label class=setting-label>HTTP Method</label><div class=setting-row><input type=text name=customHttpMethod value='" + escapeHtml(config.customHttpMethod) + "' placeholder='POST'></div></div>";
+        html += "<div class=setting-group><label class=setting-label>Server Address (URL template)</label><div class=setting-row><input type=text name=customHttpUrlTemplate value='" + escapeHtml(config.customHttpUrlTemplate) + "' placeholder='http://192.168.1.100:8080/api/data?ppm={ppm}'></div></div>";
+        html += "<div class=setting-group><label class=setting-label>Content Type</label><div class=setting-row><input type=text name=customHttpContentType value='" + escapeHtml(config.customHttpContentType) + "' placeholder='application/json'></div></div>";
+        html += "<div class=setting-group><label class=setting-label>JSON Body Template</label><div class=setting-row><input type=text name=customHttpBodyTemplate value='" + escapeHtml(config.customHttpBodyTemplate) + "' placeholder='{\"ppm\":{ppm}}'></div></div>";
+        html += "<div class=setting-group><label class=setting-label>Send Interval (seconds, min 15)</label><div class=setting-row><input type=number min=15 name=customHttpIntervalSeconds value='" + String(config.customHttpIntervalSeconds) + "'></div></div>";
+        html += "<div class=footer-actions><button class=btn-set type=submit>Save Custom HTTP</button></div><p class=hint>In custom HTTP use <b>{ppm}</b> in URL or body. Intervals are saved per provider.</p></div></form></div>";
+
+        html += "<div class=tab-panel id=tab-firmware><div class=stack><div class=setting-group><label class=setting-label>Firmware version</label><div class=setting-row><input value='" + escapeHtml(appconfig::kFirmwareVersion) + "' readonly></div></div><div class=setting-group><label class=setting-label>Build date</label><div class=setting-row><input value='" + escapeHtml(appconfig::kFirmwareBuildDate) + "' readonly></div></div><form action=/update method=post enctype='multipart/form-data'><div class=setting-group><label class=setting-label>Firmware upload</label><input type=file name=update></div><div class=footer-actions><button class=btn-set type=submit>Upload OTA</button></div><p class=hint>Upload a compiled .bin file. Device will reboot after successful flash.</p></div></form></div>";
 
         html += "</div>";
 
@@ -120,6 +170,15 @@ async function refreshLiveData() {
         const deviceIp = document.getElementById('device-ip');
         const portalMode = document.getElementById('portal-mode');
         const statusMessage = document.getElementById('status-message');
+        const tsLastSync = document.getElementById('ts-last-sync');
+        const httpLastSync = document.getElementById('http-last-sync');
+
+        const formatLastSync = (lastSyncMs) => {
+            if (!lastSyncMs || !data.nowMs || data.nowMs < lastSyncMs) return 'Last sync: -';
+            const elapsedSeconds = Math.floor((data.nowMs - lastSyncMs) / 1000);
+            if (elapsedSeconds < 60) return `Last sync: ${elapsedSeconds}s ago`;
+            return `Last sync: ${Math.floor(elapsedSeconds / 60)}m ago`;
+        };
 
         if (co2Value) co2Value.textContent = (data.co2Ppm || 0) + ' ppm';
         if (wifiValue) wifiValue.textContent = data.wifiConnected ? 'Connected' : (data.setupMode ? 'Setup AP' : 'Offline');
@@ -128,6 +187,8 @@ async function refreshLiveData() {
         if (deviceName) deviceName.textContent = data.deviceName || '';
         if (deviceIp) deviceIp.textContent = data.ipAddress || data.apAddress || '-';
         if (portalMode) portalMode.textContent = data.setupMode ? 'AP Setup' : 'Online';
+        if (tsLastSync) tsLastSync.textContent = formatLastSync(data.thingSpeakLastSyncMs || 0);
+        if (httpLastSync) httpLastSync.textContent = formatLastSync(data.customHttpLastSyncMs || 0);
 
         if (statusMessage && data.webMessage) {
             statusMessage.style.display = 'block';
@@ -170,14 +231,30 @@ void handleSave() {
     updated.deviceName = server.arg("deviceName");
     updated.wifiSsid = server.arg("wifiSsid");
     updated.wifiPassword = server.arg("wifiPassword");
-    updated.thingSpeakEnabled = server.hasArg("thingSpeakEnabled");
-    updated.thingSpeakApiKey = server.arg("thingSpeakApiKey");
-    updated.thingSpeakUrl = server.arg("thingSpeakUrl");
-    updated.customHttpEnabled = server.hasArg("customHttpEnabled");
-    updated.customHttpMethod = server.arg("customHttpMethod");
-    updated.customHttpUrlTemplate = server.arg("customHttpUrlTemplate");
-    updated.customHttpContentType = server.arg("customHttpContentType");
-    updated.customHttpBodyTemplate = server.arg("customHttpBodyTemplate");
+    updated.sensorReadIntervalMs = parseUnsignedLongArg(server.arg("sensorReadIntervalMs"), appconfig::kSensorReadIntervalMs);
+
+    const bool thingSpeakForm = server.hasArg("thingSpeakApiKey") || server.hasArg("thingSpeakIntervalSeconds") || server.hasArg("thingSpeakEnabled");
+    if (thingSpeakForm) {
+        updated.thingSpeakEnabled = server.hasArg("thingSpeakEnabled");
+        updated.thingSpeakApiKey = server.arg("thingSpeakApiKey");
+        updated.thingSpeakIntervalSeconds = parseUnsignedLongArg(server.arg("thingSpeakIntervalSeconds"), appconfig::kThingSpeakIntervalMs / 1000UL);
+        if (updated.thingSpeakIntervalSeconds < 15UL) {
+            updated.thingSpeakIntervalSeconds = 15UL;
+        }
+    }
+
+    const bool customHttpForm = server.hasArg("customHttpUrlTemplate") || server.hasArg("customHttpBodyTemplate") || server.hasArg("customHttpIntervalSeconds") || server.hasArg("customHttpEnabled");
+    if (customHttpForm) {
+        updated.customHttpEnabled = server.hasArg("customHttpEnabled");
+        updated.customHttpMethod = server.arg("customHttpMethod");
+        updated.customHttpUrlTemplate = server.arg("customHttpUrlTemplate");
+        updated.customHttpContentType = server.arg("customHttpContentType");
+        updated.customHttpBodyTemplate = server.arg("customHttpBodyTemplate");
+        updated.customHttpIntervalSeconds = parseUnsignedLongArg(server.arg("customHttpIntervalSeconds"), appconfig::kCustomHttpIntervalMs / 1000UL);
+        if (updated.customHttpIntervalSeconds < 15UL) {
+            updated.customHttpIntervalSeconds = 15UL;
+        }
+    }
 
     if (updated.deviceName.length() == 0) {
         updated.deviceName = appconfig::kDefaultDeviceName;

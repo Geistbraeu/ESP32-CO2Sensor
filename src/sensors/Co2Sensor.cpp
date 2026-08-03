@@ -4,10 +4,10 @@
 
 #include "app_config.h"
 #include "app_state.h"
+#include "settings/Settings.h"
 
 namespace {
 HardwareSerial co2Serial(2);
-unsigned long lastReadMs = 0;
 
 uint8_t checksumForCommand(const uint8_t *frame) {
     uint8_t sum = 0;
@@ -75,12 +75,6 @@ void begin() {
 }
 
 void loop() {
-    unsigned long now = millis();
-    if (now - lastReadMs < appconfig::kSensorReadIntervalMs) {
-        return;
-    }
-    lastReadMs = now;
-
     uint16_t ppm = 0;
     String error;
     if (readFrame(ppm, error)) {

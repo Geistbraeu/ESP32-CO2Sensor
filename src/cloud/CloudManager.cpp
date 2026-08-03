@@ -27,15 +27,27 @@ void loop() {
 
     unsigned long now = millis();
     SettingsData config = settings::get();
+    unsigned long thingSpeakIntervalMs = config.thingSpeakIntervalSeconds > 0 ? config.thingSpeakIntervalSeconds * 1000UL : appconfig::kThingSpeakIntervalMs;
+    unsigned long customHttpIntervalMs = config.customHttpIntervalSeconds > 0 ? config.customHttpIntervalSeconds * 1000UL : appconfig::kCustomHttpIntervalMs;
 
-    if (config.thingSpeakEnabled && now - lastThingSpeakSendMs >= appconfig::kThingSpeakIntervalMs) {
-        lastThingSpeakSendMs = now;
-        cloudthingspeak::send();
+    if (config.thingSpeakEnabled && now - lastThingSpeakSendMs >= thingSpeakIntervalMs) {
+        if (cloudthingspeak::send()) {
+            lastThingSpeakSendMs = now;
+        }
     }
 
-    if (config.customHttpEnabled && now - lastCustomHttpSendMs >= appconfig::kCustomHttpIntervalMs) {
-        lastCustomHttpSendMs = now;
-        cloudcustomhttp::send();
+    if (config.customHttpEnabled && now - lastCustomHttpSendMs >= customHttpIntervalMs) {
+        if (cloudcustomhttp::send()) {
+            lastCustomHttpSendMs = now;
+        }
     }
+}
+
+unsigned long lastThingSpeakSyncMs() {
+    return lastThingSpeakSendMs;
+}
+
+unsigned long lastCustomHttpSyncMs() {
+    return lastCustomHttpSendMs;
 }
 }  // namespace cloudmanager

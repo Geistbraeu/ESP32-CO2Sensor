@@ -4,6 +4,7 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 
+#include "app_config.h"
 #include "app_view_models.h"
 
 namespace {
@@ -24,7 +25,7 @@ bool send() {
         return false;
     }
 
-    String url = config.thingSpeakUrl;
+    String url = appconfig::kDefaultThingSpeakUrl;
     if (url.indexOf('?') < 0) {
         url += "?";
     } else if (!url.endsWith("&") && !url.endsWith("?")) {

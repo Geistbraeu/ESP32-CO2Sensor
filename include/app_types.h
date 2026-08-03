@@ -8,18 +8,17 @@ struct SettingsData {
     String deviceName = appconfig::kDefaultDeviceName;
     String wifiSsid;
     String wifiPassword;
+    uint32_t sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
 
     bool thingSpeakEnabled = false;
     String thingSpeakApiKey;
-    String thingSpeakUrl = appconfig::kDefaultThingSpeakUrl;
+    uint32_t thingSpeakIntervalSeconds = appconfig::kThingSpeakIntervalMs / 1000UL;
 
     bool customHttpEnabled = false;
     String customHttpUrlTemplate;
     String customHttpMethod = appconfig::kDefaultCustomHttpMethod;
     String customHttpContentType = appconfig::kDefaultCustomHttpContentType;
     String customHttpBodyTemplate = appconfig::kDefaultCustomHttpBodyTemplate;
+    uint32_t customHttpIntervalSeconds = appconfig::kCustomHttpIntervalMs / 1000UL;
 
-    bool hasWifiCredentials() const {
-        return wifiSsid.length() > 0 && wifiPassword.length() > 0;
-    }
 };

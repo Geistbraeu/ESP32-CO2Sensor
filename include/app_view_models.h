@@ -23,14 +23,16 @@ struct SettingsSnapshot {
     String deviceName;
     String wifiSsid;
     String wifiPassword;
+    uint32_t sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
     bool thingSpeakEnabled = false;
     String thingSpeakApiKey;
-    String thingSpeakUrl;
+    uint32_t thingSpeakIntervalSeconds = appconfig::kThingSpeakIntervalMs / 1000UL;
     bool customHttpEnabled = false;
     String customHttpUrlTemplate;
     String customHttpMethod;
     String customHttpContentType;
     String customHttpBodyTemplate;
+    uint32_t customHttpIntervalSeconds = appconfig::kCustomHttpIntervalMs / 1000UL;
 };
 
 inline RuntimeSnapshot getRuntimeSnapshot(TickType_t timeoutTicks = pdMS_TO_TICKS(20)) {
@@ -56,13 +58,15 @@ inline SettingsSnapshot getSettingsSnapshot() {
     snapshot.deviceName = config.deviceName;
     snapshot.wifiSsid = config.wifiSsid;
     snapshot.wifiPassword = config.wifiPassword;
+    snapshot.sensorReadIntervalMs = config.sensorReadIntervalMs;
     snapshot.thingSpeakEnabled = config.thingSpeakEnabled;
     snapshot.thingSpeakApiKey = config.thingSpeakApiKey;
-    snapshot.thingSpeakUrl = config.thingSpeakUrl;
+    snapshot.thingSpeakIntervalSeconds = config.thingSpeakIntervalSeconds;
     snapshot.customHttpEnabled = config.customHttpEnabled;
     snapshot.customHttpUrlTemplate = config.customHttpUrlTemplate;
     snapshot.customHttpMethod = config.customHttpMethod;
     snapshot.customHttpContentType = config.customHttpContentType;
     snapshot.customHttpBodyTemplate = config.customHttpBodyTemplate;
+    snapshot.customHttpIntervalSeconds = config.customHttpIntervalSeconds;
     return snapshot;
 }

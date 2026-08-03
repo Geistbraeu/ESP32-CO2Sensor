@@ -4,6 +4,7 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 
+#include "app_config.h"
 #include "app_view_models.h"
 
 namespace {
@@ -25,7 +26,6 @@ bool beginHttpClient(HTTPClient &http, const String &url, WiFiClient &client, Wi
 namespace cloudcustomhttp {
 bool send() {
     SettingsSnapshot config = getSettingsSnapshot();
-    RuntimeSnapshot state = getRuntimeSnapshot();
     if (!config.customHttpEnabled || config.customHttpUrlTemplate.length() == 0) {
         return false;
     }
