@@ -12,11 +12,29 @@ Adafruit_SSD1306 display(appconfig::kOledWidth, appconfig::kOledHeight, &Wire, -
 bool displayReady = false;
 unsigned long lastDrawMs = 0;
 
-String clipText(const String &value, size_t maxLength) {
-    if (value.length() <= maxLength) {
-        return value;
+enum class WifiIconState {
+    Connected,
+    AccessPoint,
+    Offline,
+};
+
+String clipTextToWidth(const String &value, uint8_t size, int16_t maxWidth) {
+    String result = value;
+    int16_t x1 = 0;
+    int16_t y1 = 0;
+    uint16_t w = 0;
+    uint16_t h = 0;
+
+    while (result.length() > 0) {
+        display.setTextSize(size);
+        display.getTextBounds(result, 0, 0, &x1, &y1, &w, &h);
+        if (w <= static_cast<uint16_t>(maxWidth)) {
+            return result;
+        }
+        result.remove(result.length() - 1);
     }
-    return value.substring(0, maxLength);
+
+    return result;
 }
 
 void drawCenteredText(int y, const String &text, uint8_t size) {
@@ -29,6 +47,46 @@ void drawCenteredText(int y, const String &text, uint8_t size) {
     int16_t x = static_cast<int16_t>((appconfig::kOledWidth - w) / 2);
     display.setCursor(x, y);
     display.print(text);
+}
+
+void drawRightAlignedText(int y, const String &text, uint8_t size, int16_t rightMargin = 0) {
+    display.setTextSize(size);
+    int16_t x1 = 0;
+    int16_t y1 = 0;
+    uint16_t w = 0;
+    uint16_t h = 0;
+    display.getTextBounds(text, 0, y, &x1, &y1, &w, &h);
+    int16_t x = static_cast<int16_t>(appconfig::kOledWidth - rightMargin - w);
+    if (x < 0) {
+        x = 0;
+    }
+    display.setCursor(x, y);
+    display.print(text);
+}
+
+void drawWifiIcon(int x, int y, WifiIconState state) {
+    constexpr int iconWidth = 16;
+    constexpr int iconHeight = 16;
+    const int centerX = x + (iconWidth / 2);
+    const int centerY = y + 8;
+
+    display.drawCircle(centerX, centerY, 7, SSD1306_WHITE);
+    display.drawCircle(centerX, centerY, 5, SSD1306_WHITE);
+    display.drawCircle(centerX, centerY, 3, SSD1306_WHITE);
+    display.fillRect(x, centerY + 1, iconWidth, iconHeight - (centerY - y) - 1, SSD1306_BLACK);
+
+    if (state == WifiIconState::Offline) {
+        display.drawLine(x + 1, y + 2, x + iconWidth - 2, y + iconHeight - 2, SSD1306_WHITE);
+        display.drawLine(x + 1, y + 4, x + iconWidth - 4, y + iconHeight - 4, SSD1306_WHITE);
+        return;
+    }
+
+    display.fillCircle(centerX, y + 13, 1, SSD1306_WHITE);
+
+    if (state == WifiIconState::AccessPoint) {
+        display.drawLine(centerX, y + 11, centerX, y + 15, SSD1306_WHITE);
+        display.drawPixel(centerX, y + 10, SSD1306_WHITE);
+    }
 }
 }  // namespace
 
@@ -60,36 +118,40 @@ void loop() {
     display.setTextColor(SSD1306_WHITE);
 
     display.setTextSize(1);
-    display.setCursor(0, 0);
-    display.print(clipText(config.deviceName, 21));
+    String title = clipTextToWidth(config.deviceName, 1, 90);
+    display.setCursor(0, 4);
+    display.print(title);
 
-    display.setCursor(0, 8);
+    WifiIconState wifiIconState = WifiIconState::Offline;
     if (state.wifiConnected) {
-        display.print("IP: ");
-        display.print(state.ipAddress);
+        wifiIconState = WifiIconState::Connected;
     } else if (state.setupMode) {
-        display.print("AP: ");
-        display.print(state.apAddress);
+        wifiIconState = WifiIconState::AccessPoint;
+    }
+    drawWifiIcon(111, 0, wifiIconState);
+
+    if (wifiIconState == WifiIconState::AccessPoint) {
+        display.setTextSize(1);
+        display.setCursor(96, 11);
+        display.print("AP");
+    }
+
+    display.drawLine(0, 15, appconfig::kOledWidth - 1, 15, SSD1306_WHITE);
+
+    String ppmValue = state.lastValidPpm > 0 ? String(state.co2Ppm) : String("---");
+    String ppmText = ppmValue + " ppm";
+    drawCenteredText(22, ppmText, 3);
+
+    String ipText;
+    if (state.wifiConnected) {
+        ipText = state.ipAddress;
+    } else if (state.setupMode) {
+        ipText = state.apAddress;
     } else {
-        display.print("WiFi connecting");
+        ipText = String("OFF");
     }
-
-    display.drawLine(0, 18, appconfig::kOledWidth - 1, 18, SSD1306_WHITE);
-
-    String ppmText = state.lastValidPpm > 0 ? String(state.co2Ppm) : String("---");
-    drawCenteredText(26, ppmText, 4);
-
-    display.setTextSize(1);
-    display.setCursor(0, 56);
-    if (state.sensorWarmingUp) {
-        display.print("WARMUP ");
-        display.print(state.sensorWarmupRemainingSec);
-        display.print("s");
-    } else if (state.sensorConnected) {
-        display.print("ppm");
-    } else if (state.sensorError.length() > 0) {
-        display.print(clipText(state.sensorError, 21));
-    }
+    ipText = clipTextToWidth(ipText, 1, appconfig::kOledWidth - 2);
+    drawRightAlignedText(56, ipText, 1, 2);
 
     display.display();
 }
