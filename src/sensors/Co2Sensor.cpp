@@ -1,83 +1,41 @@
 #include "sensors/Co2Sensor.h"
 
 #include <HardwareSerial.h>
+#include <MHZ19.h>
 
 #include "app_config.h"
 #include "app_state.h"
-#include "settings/Settings.h"
 
 namespace {
 HardwareSerial co2Serial(2);
-
-uint8_t checksumForCommand(const uint8_t *frame) {
-    uint8_t sum = 0;
-    for (int index = 1; index < 8; ++index) {
-        sum += frame[index];
-    }
-    return static_cast<uint8_t>(0xFF - sum + 1);
-}
-
-bool readFrame(uint16_t &ppm, String &error) {
-    const uint8_t command[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t request[9];
-    memcpy(request, command, sizeof(request));
-    request[8] = checksumForCommand(request);
-
-    while (co2Serial.available() > 0) {
-        co2Serial.read();
-    }
-
-    co2Serial.write(request, sizeof(request));
-    co2Serial.flush();
-
-    uint8_t response[9] = {0};
-    const unsigned long start = millis();
-    size_t received = 0;
-    while (millis() - start < 500UL && received < sizeof(response)) {
-        if (co2Serial.available() > 0) {
-            response[received++] = static_cast<uint8_t>(co2Serial.read());
-        }
-    }
-
-    if (received != sizeof(response)) {
-        error = "CO2 sensor timeout";
-        return false;
-    }
-
-    if (response[0] != 0xFF || response[1] != 0x86) {
-        error = "CO2 sensor frame invalid";
-        return false;
-    }
-
-    uint8_t expectedChecksum = 0;
-    for (int index = 1; index < 8; ++index) {
-        expectedChecksum += response[index];
-    }
-    expectedChecksum = static_cast<uint8_t>(0xFF - expectedChecksum + 1);
-    if (response[8] != expectedChecksum) {
-        error = "CO2 sensor checksum mismatch";
-        return false;
-    }
-
-    ppm = static_cast<uint16_t>((static_cast<uint16_t>(response[2]) << 8) | response[3]);
-    if (ppm == 0 || ppm > 10000) {
-        error = "CO2 value out of range";
-        return false;
-    }
-
-    return true;
-}
+MHZ19 myMHZ19;
+SemaphoreHandle_t co2SerialMutex = nullptr;
 }  // namespace
 
 namespace sensor {
 void begin() {
     co2Serial.begin(appconfig::kCo2SensorBaud, SERIAL_8N1, appconfig::kCo2SensorRxPin, appconfig::kCo2SensorTxPin);
+    myMHZ19.begin(co2Serial);
+    myMHZ19.autoCalibration(false);
+
+    if (co2SerialMutex == nullptr) {
+        co2SerialMutex = xSemaphoreCreateMutex();
+    }
 }
 
 void loop() {
-    uint16_t ppm = 0;
-    String error;
-    if (readFrame(ppm, error)) {
+    if (co2SerialMutex != nullptr && xSemaphoreTake(co2SerialMutex, pdMS_TO_TICKS(600)) != pdTRUE) {
+        return;
+    }
+
+    int ppm = myMHZ19.getCO2();
+    bool ok = ppm >= 250 && ppm <= 10000;
+
+    if (co2SerialMutex != nullptr) {
+        xSemaphoreGive(co2SerialMutex);
+    }
+
+    if (ok) {
         if (lockAppState()) {
             gAppState.sensorConnected = true;
             gAppState.co2Ppm = ppm;
@@ -90,11 +48,27 @@ void loop() {
 
     if (lockAppState()) {
         gAppState.sensorConnected = false;
-        gAppState.sensorError = error;
+        gAppState.sensorError = "CO2 read failed";
         if (gAppState.lastValidPpm > 0) {
             gAppState.co2Ppm = gAppState.lastValidPpm;
         }
         unlockAppState();
     }
+}
+
+bool calibrateZero(String &error) {
+    if (co2SerialMutex != nullptr && xSemaphoreTake(co2SerialMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        error = "CO2 sensor is busy";
+        return false;
+    }
+
+    myMHZ19.calibrate();
+
+    if (co2SerialMutex != nullptr) {
+        xSemaphoreGive(co2SerialMutex);
+    }
+
+    error = "";
+    return true;
 }
 }  // namespace sensor

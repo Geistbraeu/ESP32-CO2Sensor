@@ -10,6 +10,8 @@
 #include "app_view_models.h"
 #include "app_state.h"
 #include "cloud/CloudManager.h"
+#include "sensors/Co2Sensor.h"
+#include "wifi/ConfigPortal.h"
 
 namespace {
 WebServer server(80);
@@ -93,6 +95,10 @@ String pageHtml() {
     SettingsSnapshot config = getSettingsSnapshot();
     RuntimeSnapshot state = getRuntimeSnapshot();
     unsigned long nowMs = millis();
+    String wifiSsidValue = config.wifiSsid;
+    if (wifiSsidValue.length() == 0 && WiFi.status() == WL_CONNECTED) {
+        wifiSsidValue = WiFi.SSID();
+    }
     String html;
         html.reserve(22000);
         html += R"HTML(<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">)HTML";
@@ -101,11 +107,9 @@ String pageHtml() {
         html += "<div class=cards><div class=card><div class=card-label>CO2</div><div class=card-value accent";
         html += state.sensorConnected ? "" : " warn";
         html += " id=co2-value>" + String(state.co2Ppm > 0 ? state.co2Ppm : state.lastValidPpm) + " ppm</div></div>";
-        html += "<div class=card><div class=card-label>Wi-Fi</div><div class=card-value";
-        html += state.wifiConnected ? " ok" : " danger";
-        html += " id=wifi-value>" + String(state.wifiConnected ? "Connected" : (state.setupMode ? "Setup AP" : "Offline")) + "</div></div>";
-        html += "<div class=card><div class=card-label>IP</div><div class=card-value id=ip-value>" + escapeHtml(emptyIfBlank(state.ipAddress.length() > 0 ? state.ipAddress : state.apAddress)) + "</div></div>";
-        html += "<div class=card><div class=card-label>Cloud</div><div class=card-value id=cloud-value>" + escapeHtml(state.cloudStatus.length() > 0 ? state.cloudStatus : String("Idle")) + "</div></div></div>";
+        html += "</div>";
+
+        html += "<div class=footer-actions style='margin-bottom:16px'><form id=calibrate-form action=/calibrate method=post><button class=btn type=button style='background:linear-gradient(135deg,#f27b7b,#f8c35f);color:#20120e' onclick='confirmCalibration()'>Calibrate sensor</button></form></div>";
 
         html += "<div id=status-message class=status-message style='display:";
         html += state.webMessage.length() > 0 ? "block" : "none";
@@ -120,9 +124,12 @@ String pageHtml() {
 
         html += "<div class=tabs-body>";
 
-        html += "<div class='tab-panel active' id=tab-main><form action=/api method=post><div class=grid><div class=setting-group><label class=setting-label>Device name</label><div class=setting-row><input name=deviceName value='" + escapeHtml(config.deviceName) + "'><button class=btn-set type=submit>Save</button></div></div><div class=setting-group><label class=setting-label>Sensor read interval, ms</label><div class=setting-row><input type=number min=100 name=sensorReadIntervalMs value='" + String(config.sensorReadIntervalMs) + "'></div><p class=hint>Controls how often the sensor task polls the CO2 sensor.</p></div></div></form><hr class=divider><div class=section-title>Main</div><div class=muted>CO2 value and sensor status are shown in the cards above.</div></div>";
+        html += "<div class='tab-panel active' id=tab-main><div class=stack>";
+        html += "<form action=/api method=post><div class=setting-group><label class=setting-label>Device name</label><div class=setting-row><input name=deviceName value='" + escapeHtml(config.deviceName) + "'><button class=btn-set type=submit>Set</button></div></div></form>";
+        html += "<form action=/api method=post><div class=setting-group><label class=setting-label>Sensor read interval, ms</label><div class=setting-row><input type=number min=100 name=sensorReadIntervalMs value='" + String(config.sensorReadIntervalMs) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Controls how often the sensor task polls the CO2 sensor.</p></div></form>";
+        html += "</div></div>";
 
-        html += "<div class=tab-panel id=tab-wifi><form action=/api method=post><div class=stack><div class=setting-group><label class=setting-label>Wi-Fi SSID</label><input name=wifiSsid value='" + escapeHtml(config.wifiSsid) + "'></div><div class=setting-group><label class=setting-label>Wi-Fi password</label><input type=password name=wifiPassword value='" + escapeHtml(config.wifiPassword) + "'></div><div class=setting-group><label class=setting-label>Device hostname</label><input name=deviceName value='" + escapeHtml(config.deviceName) + "'></div><div class=footer-actions><button class=btn-set type=submit>Save Wi-Fi</button></div><p class=hint>Use the access point if the device is offline. AP is named after the device.</p></div></form></div>";
+        html += "<div class=tab-panel id=tab-wifi><form action=/api method=post><div class=stack><div class=setting-group><label class=setting-label>Wi-Fi SSID</label><input name=wifiSsid value='" + escapeHtml(wifiSsidValue) + "'></div><div class=setting-group><label class=setting-label>Wi-Fi password</label><input type=password name=wifiPassword value='" + escapeHtml(config.wifiPassword) + "'></div><div class=footer-actions><button class=btn-set type=submit>Save Wi-Fi</button></div><p class=hint>Use the access point if the device is offline. AP is named after the device.</p></div></form></div>";
 
         html += "<div class=tab-panel id=tab-cloud>";
 
@@ -156,6 +163,14 @@ function switchTab(id, button) {
     document.querySelectorAll('.tab-btn').forEach(tab => tab.classList.remove('active'));
     document.getElementById('tab-' + id).classList.add('active');
     button.classList.add('active');
+}
+
+function confirmCalibration() {
+    const message = 'Confirm CO2 zero calibration? Use only in fresh outdoor air (~400 ppm).';
+    if (window.confirm(message)) {
+        const form = document.getElementById('calibrate-form');
+        if (form) form.submit();
+    }
 }
 
 async function refreshLiveData() {
@@ -222,16 +237,34 @@ void handleRoot() {
     server.send(200, "text/html; charset=utf-8", pageHtml());
 }
 
+void handleNotFound() {
+    if (wifiportal::isSetupMode()) {
+        handleRoot();
+        return;
+    }
+
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "Redirecting");
+}
+
 void handleApiGet() {
     server.send(200, "application/json", statusJson());
 }
 
 void handleSave() {
     SettingsData updated = settings::get();
-    updated.deviceName = server.arg("deviceName");
-    updated.wifiSsid = server.arg("wifiSsid");
-    updated.wifiPassword = server.arg("wifiPassword");
-    updated.sensorReadIntervalMs = parseUnsignedLongArg(server.arg("sensorReadIntervalMs"), appconfig::kSensorReadIntervalMs);
+    if (server.hasArg("deviceName")) {
+        updated.deviceName = server.arg("deviceName");
+    }
+    const bool wifiForm = server.hasArg("wifiSsid") || server.hasArg("wifiPassword");
+    if (wifiForm) {
+        // Wi-Fi form intentionally sends full credential pair, including empty password for open networks.
+        updated.wifiSsid = server.arg("wifiSsid");
+        updated.wifiPassword = server.arg("wifiPassword");
+    }
+    if (server.hasArg("sensorReadIntervalMs")) {
+        updated.sensorReadIntervalMs = parseUnsignedLongArg(server.arg("sensorReadIntervalMs"), appconfig::kSensorReadIntervalMs);
+    }
 
     const bool thingSpeakForm = server.hasArg("thingSpeakApiKey") || server.hasArg("thingSpeakIntervalSeconds") || server.hasArg("thingSpeakEnabled");
     if (thingSpeakForm) {
@@ -272,6 +305,24 @@ void handleSave() {
     server.send(303, "text/plain", "Saved");
 }
 
+void handleCalibrate() {
+    String error;
+    if (sensor::calibrateZero(error)) {
+        if (lockAppState()) {
+            gAppState.webMessage = "Calibration command sent. Keep sensor in fresh air (~400 ppm) for 20 minutes.";
+            unlockAppState();
+        }
+    } else {
+        if (lockAppState()) {
+            gAppState.webMessage = "Calibration failed: " + (error.length() > 0 ? error : String("unknown error"));
+            unlockAppState();
+        }
+    }
+
+    server.sendHeader("Location", "/");
+    server.send(303, "text/plain", "Calibrate");
+}
+
 void handleApiPost() {
     handleSave();
 }
@@ -309,9 +360,13 @@ void begin(bool captivePortalEnabled) {
     server.on("/api", HTTP_GET, handleApiGet);
     server.on("/api", HTTP_POST, handleApiPost);
     server.on("/status", HTTP_GET, handleApiGet);
+    server.on("/generate_204", HTTP_GET, handleRoot);
+    server.on("/hotspot-detect.html", HTTP_GET, handleRoot);
+    server.on("/ncsi.txt", HTTP_GET, handleRoot);
     server.on("/save", HTTP_POST, handleSave);
+    server.on("/calibrate", HTTP_POST, handleCalibrate);
     server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
-    server.onNotFound([]() { server.sendHeader("Location", "/"); server.send(302, "text/plain", "Redirecting"); });
+    server.onNotFound(handleNotFound);
     server.begin();
 
     if (MDNS.begin(buildHostname().c_str())) {
@@ -321,6 +376,16 @@ void begin(bool captivePortalEnabled) {
 
 void loop() {
     server.handleClient();
+
+    const bool setupMode = wifiportal::isSetupMode();
+    if (setupMode && !dnsStarted) {
+        dnsServer.start(53, "*", WiFi.softAPIP());
+        dnsStarted = true;
+    } else if (!setupMode && dnsStarted) {
+        dnsServer.stop();
+        dnsStarted = false;
+    }
+
     if (dnsStarted) {
         dnsServer.processNextRequest();
     }
