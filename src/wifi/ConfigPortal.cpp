@@ -8,6 +8,7 @@
 
 static bool setupMode = false;
 static bool offlineMode = false;
+static bool reconfigureRequested = false;
 static unsigned long apStartedMs = 0;
 
 constexpr unsigned long kSetupApWindowMs = 5UL * 60UL * 1000UL;
@@ -34,35 +35,19 @@ static void startAccessPoint(const String &deviceName) {
     }
 }
 
-static void enterOfflineMode() {
-    WiFi.softAPdisconnect(true);
-    WiFi.disconnect(true, false);
-    WiFi.mode(WIFI_OFF);
-    setupMode = false;
-    offlineMode = true;
-
-    if (lockAppState()) {
-        gAppState.setupMode = false;
-        gAppState.wifiConnected = false;
-        gAppState.ipAddress.clear();
-        gAppState.apAddress.clear();
-        gAppState.webMessage = "Offline mode: Wi-Fi disabled";
-        unlockAppState();
-    }
-}
-
-namespace wifiportal {
-void begin() {
+static void applyNetworkSettings() {
     SettingsSnapshot config = getSettingsSnapshot();
-    setupMode = false;
-    offlineMode = false;
-    apStartedMs = 0;
 
     if (lockAppState()) {
         gAppState.wifiSsid = config.wifiSsid;
         unlockAppState();
     }
 
+    setupMode = false;
+    offlineMode = false;
+    apStartedMs = 0;
+
+    WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
     WiFi.disconnect(true, false);
     WiFi.setHostname(config.deviceName.c_str());
@@ -94,7 +79,36 @@ void begin() {
     }
 }
 
+static void enterOfflineMode() {
+    WiFi.softAPdisconnect(true);
+    WiFi.disconnect(true, false);
+    WiFi.mode(WIFI_OFF);
+    setupMode = false;
+    offlineMode = true;
+
+    if (lockAppState()) {
+        gAppState.setupMode = false;
+        gAppState.wifiConnected = false;
+        gAppState.ipAddress.clear();
+        gAppState.apAddress.clear();
+        gAppState.webMessage = "Offline mode: Wi-Fi disabled";
+        unlockAppState();
+    }
+}
+
+namespace wifiportal {
+void begin() {
+    reconfigureRequested = false;
+    applyNetworkSettings();
+}
+
 void loop() {
+    if (reconfigureRequested) {
+        reconfigureRequested = false;
+        applyNetworkSettings();
+        return;
+    }
+
     if (offlineMode) {
         return;
     }
@@ -127,5 +141,9 @@ void loop() {
 
 bool isSetupMode() {
     return setupMode;
+}
+
+void requestReconfigure() {
+    reconfigureRequested = true;
 }
 }  // namespace wifiportal

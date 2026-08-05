@@ -73,8 +73,6 @@ namespace webpage {String render() {
         }
         html += "<p class=hint id=sensor-status style='margin:-6px 0 12px 2px'>" + escapeHtml(sensorStatus) + "</p>";
 
-        html += "<div class=footer-actions style='margin-bottom:16px'><form id=calibrate-form action=/calibrate method=post><button class=btn type=button style='background:linear-gradient(135deg,#f27b7b,#f8c35f);color:#20120e' onclick='confirmCalibration()'>Calibrate sensor</button></form></div>";
-
         html += "<div id=status-message class=status-message style='display:";
         html += state.webMessage.length() > 0 ? "block" : "none";
         html += "'>" + escapeHtml(state.webMessage) + "</div>";
@@ -83,6 +81,7 @@ namespace webpage {String render() {
         html += "<button class='tab-btn active' onclick=\"switchTab('main',this)\">&#9881; Main</button>";
         html += "<button class='tab-btn' onclick=\"switchTab('wifi',this)\">&#128246; Wi-Fi</button>";
         html += "<button class='tab-btn' onclick=\"switchTab('cloud',this)\">&#9729; Cloud</button>";
+        html += "<button class='tab-btn' onclick=\"switchTab('calibration',this)\">&#9878; Calibration</button>";
         html += "<button class='tab-btn' onclick=\"switchTab('firmware',this)\">&#128190; Firmware</button>";
         html += "</div>";
 
@@ -117,6 +116,15 @@ namespace webpage {String render() {
         html += "<div class=setting-group><label class=setting-label>Send Interval (seconds, min 15)</label><div class=setting-row><input type=number min=15 name=customHttpIntervalSeconds value='" + String(config.customHttpIntervalSeconds) + "'></div></div>";
         html += "<div class=footer-actions><button class=btn-set type=submit>Save Custom HTTP</button></div><p class=hint>In custom HTTP use <b>{ppm}</b> in URL or body. Intervals are saved per provider.</p></div></form></div>";
 
+        html += "<div class=tab-panel id=tab-calibration><div class=stack>";
+        html += "<div class=setting-group><label class=setting-label>Manual Calibration Steps</label>";
+        html += "<p class=hint><b>1. Move the device to fresh outdoor air:</b> Place the desktop monitor outside or on an open balcony.</p>";
+        html += "<p class=hint><b>2. Let it run for 3-5 minutes.</b></p>";
+        html += "<p class=hint><b>3. Press the \"Calibrate\" button.</b></p>";
+        html += "</div>";
+        html += "<div class=footer-actions><form id=calibrate-form action=/calibrate method=post><button class=btn type=button style='background:linear-gradient(135deg,#f27b7b,#f8c35f);color:#20120e' onclick='confirmCalibration()'>Calibrate</button></form></div>";
+        html += "</div></div>";
+
         html += "<div class=tab-panel id=tab-firmware><div class=stack><div class=setting-group><label class=setting-label>Firmware version</label><div class=setting-row><input id=firmware-version-value value='" + escapeHtml(appconfig::kFirmwareVersion) + "' readonly></div></div><div class=setting-group><label class=setting-label>Build date</label><div class=setting-row><input id=firmware-build-date-value value='" + escapeHtml(appconfig::firmwareBuildDateString()) + "' readonly></div></div><form id=firmware-upload-form action=/update method=post enctype='multipart/form-data'><div class=setting-group><label class=setting-label>Firmware upload</label><input type=file name=update accept='.bin'></div><div class=footer-actions><button class=btn-set type=submit>Upload OTA</button></div><p class=hint>Upload a compiled .bin file. Device will reboot after successful flash.</p></div></form></div>";
 
         html += "</div>";
@@ -130,7 +138,7 @@ function switchTab(id, button) {
 }
 
 function confirmCalibration() {
-    const message = 'Confirm CO2 zero calibration. Keep the sensor in fresh outdoor air (~400 ppm) for 20 minutes before pressing OK.';
+    const message = 'Start calibration now? Make sure the device has been in fresh outdoor air for 3-5 minutes.';
     if (window.confirm(message)) {
         const form = document.getElementById('calibrate-form');
         if (form) form.submit();

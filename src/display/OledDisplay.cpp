@@ -220,8 +220,13 @@ void loop() {
     String ppmValue = state.lastValidPpm > 0 ? String(state.co2Ppm) : String("---");
     drawPpmReading(22, ppmValue);
 
+    constexpr int16_t kBottomY = 56;
+    constexpr int16_t kBottomLeftMargin = 2;
+    constexpr int16_t kBottomRightMargin = 2;
+    constexpr int16_t kBottomGap = 6;
+
     String humidityText = state.climateValid ? String(state.humidityPct, 1) + "%" : String("--.-%");
-    drawLeftAlignedText(56, humidityText, 1, 2);
+    drawLeftAlignedText(kBottomY, humidityText, 1, kBottomLeftMargin);
 
     String ipText;
     if (state.wifiConnected) {
@@ -231,8 +236,16 @@ void loop() {
     } else {
         ipText = String("OFF");
     }
-    ipText = clipTextToWidth(ipText, 1, appconfig::kOledWidth - 52);
-    drawRightAlignedText(56, ipText, 1, 2);
+    // Compute available width dynamically so the right-aligned IP text is clipped only when needed.
+    const uint16_t humidityWidth = textWidth(humidityText, 1);
+    int16_t ipStartMinX = kBottomLeftMargin + static_cast<int16_t>(humidityWidth) + kBottomGap;
+    int16_t availableIpWidth = static_cast<int16_t>(appconfig::kOledWidth - kBottomRightMargin - ipStartMinX);
+    if (availableIpWidth < 0) {
+        availableIpWidth = 0;
+    }
+
+    ipText = clipTextToWidth(ipText, 1, availableIpWidth);
+    drawRightAlignedText(kBottomY, ipText, 1, kBottomRightMargin);
 
     if (applocks::lockI2c(pdMS_TO_TICKS(250))) {
         display.display();

@@ -251,30 +251,56 @@ bool calibrateZero(String &error) {
         return false;
     }
 
-    bool stopped = scd4x.stopPeriodicMeasurement() == 0;
+    int16_t stopError = scd4x.stopPeriodicMeasurement();
     delay(500);
 
+    const uint16_t targetCO2 = 400;
     uint16_t frcCorrection = 0;
-    bool frcOk = stopped && (scd4x.performForcedRecalibration(400, frcCorrection) == 0);
+    int16_t frcError = 0;
+    if (stopError == 0) {
+        frcError = scd4x.performForcedRecalibration(targetCO2, frcCorrection);
+    } else {
+        frcError = stopError;
+    }
 
-    delay(500);
-    bool restarted = scd4x.startPeriodicMeasurement() == 0;
+    int16_t startError = scd4x.startPeriodicMeasurement();
     applocks::unlockI2c();
 
     if (sensorMutex != nullptr) {
         xSemaphoreGive(sensorMutex);
     }
 
-    Serial.println("[SCD40] calibrate: stopped=" + String(stopped ? 1 : 0) +
-                   " frcOk=" + String(frcOk ? 1 : 0) +
+    Serial.println("[SCD40] calibrate: stopError=" + String(stopError) +
+                   " frcError=" + String(frcError) +
                    " frcCorrection=" + String(frcCorrection) +
-                   " restarted=" + String(restarted ? 1 : 0));
+                   " startError=" + String(startError));
 
-    if (!frcOk || !restarted || frcCorrection == 0xFFFF) {
-        error = "Calibration failed. Keep sensor running 3+ min in fresh air (~400 ppm) and retry";
+    if (stopError != 0) {
+        error = "Calibration failed: unable to stop periodic measurement";
         return false;
     }
 
+    if (frcError != 0) {
+        error = "Calibration failed: forced recalibration command error";
+        return false;
+    }
+
+    if (frcCorrection == 0xFFFF) {
+        error = "Calibration failed: unstable readings. Keep device in fresh air for 3-5 minutes and retry";
+        return false;
+    }
+
+    const int16_t correctionPpm = static_cast<int16_t>(frcCorrection) - 0x8000;
+    Serial.println("[SCD40] calibrate: success correction=" + String(correctionPpm) + " ppm");
+
+    if (startError != 0) {
+        sensorReady = false;
+        nextInitAttemptMs = millis() + kInitRetryMs;
+        error = "Calibration applied, but sensor restart failed. Reinitialization scheduled";
+        return false;
+    }
+
+    sensorReady = true;
     error = "";
     return true;
 }

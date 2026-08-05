@@ -20,12 +20,14 @@ WebServer server(80);
 DNSServer dnsServer;
 bool dnsStarted = false;
 bool restartRequested = false;
+bool networkReinitRequested = false;
+bool mdnsReinitRequested = false;
 unsigned long webMessageExpireAtMs = 0;
 
 struct SaveResult {
     bool saved = false;
     bool hasValidationWarnings = false;
-    bool restartRequired = false;
+    bool networkReinitRequired = false;
     String validationMessage;
     String validationIssuesJson = "[]";
 };
@@ -196,7 +198,8 @@ SaveResult processSaveRequest() {
         }
 
         if (updated.deviceName != previous.deviceName) {
-            result.restartRequired = true;
+            result.networkReinitRequired = true;
+            mdnsReinitRequested = true;
         }
     }
 
@@ -207,7 +210,7 @@ SaveResult processSaveRequest() {
         updated.wifiPassword = trimmedArg("wifiPassword");
 
         if (updated.wifiSsid != previous.wifiSsid || updated.wifiPassword != previous.wifiPassword) {
-            result.restartRequired = true;
+            result.networkReinitRequired = true;
         }
     }
 
@@ -312,8 +315,8 @@ SaveResult processSaveRequest() {
         setWebMessage("Settings saved", 5000);
     }
     result.saved = true;
-    if (result.restartRequired) {
-        restartRequested = true;
+    if (result.networkReinitRequired) {
+        networkReinitRequested = true;
     }
 
     return result;
@@ -329,7 +332,7 @@ void handleSave() {
 void handleCalibrate() {
     String error;
     if (sensor::calibrateZero(error)) {
-        setWebMessage("Calibration complete. Keep sensor in fresh air (~400 ppm) for 2-3 minutes before calibration.", 8000);
+        setWebMessage("Calibration completed successfully.", 8000);
     } else {
         setWebMessage("Calibration failed: " + (error.length() > 0 ? error : String("unknown error")), 10000);
     }
@@ -343,7 +346,8 @@ void handleApiPost() {
     String json = "{";
     json += "\"ok\":true";
     json += ",\"saved\":" + String(result.saved ? "true" : "false");
-    json += ",\"restartRequired\":" + String(result.restartRequired ? "true" : "false");
+    json += ",\"restartRequired\":false";
+    json += ",\"networkReinitRequired\":" + String(result.networkReinitRequired ? "true" : "false");
     json += ",\"hasValidationWarnings\":" + String(result.hasValidationWarnings ? "true" : "false");
     json += ",\"message\":\"" + jsonEscape(result.hasValidationWarnings ? ("Saved with validation warnings: " + result.validationMessage) : String("Settings saved")) + "\"";
     json += ",\"validationIssues\":" + result.validationIssuesJson;
@@ -400,6 +404,19 @@ void begin(bool captivePortalEnabled) {
 
 void loop() {
     server.handleClient();
+
+    if (networkReinitRequested) {
+        networkReinitRequested = false;
+        wifiportal::requestReconfigure();
+    }
+
+    if (mdnsReinitRequested) {
+        mdnsReinitRequested = false;
+        MDNS.end();
+        if (MDNS.begin(buildHostname().c_str())) {
+            MDNS.addService("http", "tcp", 80);
+        }
+    }
 
     const bool setupMode = wifiportal::isSetupMode();
     if (setupMode && !dnsStarted) {
