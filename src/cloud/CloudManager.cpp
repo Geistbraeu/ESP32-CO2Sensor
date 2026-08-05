@@ -25,13 +25,7 @@ void loop() {
         return;
     }
 
-    if (state.sensorWarmingUp || !state.sensorConnected || state.co2Ppm < 250 || state.co2Ppm > 10000) {
-        if (lockAppState()) {
-            if (state.sensorWarmingUp) {
-                gAppState.cloudStatus = "Sensor warm-up";
-            }
-            unlockAppState();
-        }
+    if (!state.sensorConnected || state.co2Ppm < 250 || state.co2Ppm > 10000) {
         return;
     }
 

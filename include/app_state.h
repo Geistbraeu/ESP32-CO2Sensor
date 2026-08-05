@@ -12,10 +12,11 @@ struct AppState {
     String apAddress;
 
     bool sensorConnected = false;
-    bool sensorWarmingUp = false;
-    uint16_t sensorWarmupRemainingSec = 0;
     uint16_t co2Ppm = 0;
     uint16_t lastValidPpm = 0;
+    float temperatureC = 0.0f;
+    float humidityPct = 0.0f;
+    bool climateValid = false;
     String sensorError;
 
     String cloudStatus;

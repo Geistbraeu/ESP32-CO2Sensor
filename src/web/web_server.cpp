@@ -12,6 +12,7 @@
 #include "app_state.h"
 #include "cloud/CloudManager.h"
 #include "sensors/Co2Sensor.h"
+#include "validation.h"
 #include "wifi/ConfigPortal.h"
 
 namespace {
@@ -20,6 +21,14 @@ DNSServer dnsServer;
 bool dnsStarted = false;
 bool restartRequested = false;
 unsigned long webMessageExpireAtMs = 0;
+
+struct SaveResult {
+    bool saved = false;
+    bool hasValidationWarnings = false;
+    bool restartRequired = false;
+    String validationMessage;
+    String validationIssuesJson = "[]";
+};
 
 void setWebMessage(const String &message, unsigned long ttlMs = 0) {
     if (lockAppState()) {
@@ -52,11 +61,6 @@ String emptyIfBlank(const String &value) {
     return value.length() > 0 ? value : String("-");
 }
 
-unsigned long parseUnsignedLongArg(const String &value, unsigned long fallback) {
-    unsigned long parsed = static_cast<unsigned long>(value.toInt());
-    return parsed > 0 ? parsed : fallback;
-}
-
 String trimmedArg(const char *name) {
     String value = server.arg(name);
     value.trim();
@@ -78,6 +82,22 @@ String jsonEscape(String value) {
     value.replace("\n", " ");
     value.replace("\r", " ");
     return value;
+}
+
+void addValidationIssue(SaveResult &result, const String &field, const String &message) {
+    if (result.hasValidationWarnings) {
+        result.validationMessage += "; ";
+    }
+    result.validationMessage += message;
+    result.hasValidationWarnings = true;
+
+    String entry = "{\"field\":\"" + jsonEscape(field) + "\",\"message\":\"" + jsonEscape(message) + "\"}";
+    if (result.validationIssuesJson == "[]") {
+        result.validationIssuesJson = "[" + entry + "]";
+    } else {
+        result.validationIssuesJson.remove(result.validationIssuesJson.length() - 1);
+        result.validationIssuesJson += "," + entry + "]";
+    }
 }
 
 String lastSyncLabel(unsigned long lastSyncMs, unsigned long nowMs) {
@@ -107,9 +127,10 @@ String statusJson() {
     json += "\"ipAddress\":\"" + jsonEscape(state.ipAddress) + "\",";
     json += "\"apAddress\":\"" + jsonEscape(state.apAddress) + "\",";
     json += "\"co2Ppm\":" + String(state.co2Ppm) + ",";
+    json += "\"temperatureC\":" + String(state.temperatureC, 1) + ",";
+    json += "\"humidityPct\":" + String(state.humidityPct, 1) + ",";
+    json += "\"climateValid\":" + String(state.climateValid ? "true" : "false") + ",";
     json += "\"sensorConnected\":" + String(state.sensorConnected ? "true" : "false") + ",";
-    json += "\"sensorWarmingUp\":" + String(state.sensorWarmingUp ? "true" : "false") + ",";
-    json += "\"sensorWarmupRemainingSec\":" + String(state.sensorWarmupRemainingSec) + ",";
     json += "\"sensorError\":\"" + jsonEscape(state.sensorError) + "\",";
     json += "\"cloudStatus\":\"" + jsonEscape(state.cloudStatus) + "\",";
     json += "\"cloudError\":\"" + jsonEscape(state.cloudError) + "\",";
@@ -160,41 +181,122 @@ void handleApiGet() {
     server.send(200, "application/json", statusJson());
 }
 
-void handleSave() {
-    SettingsData updated = settings::get();
+SaveResult processSaveRequest() {
+    SettingsData previous = settings::get();
+    SettingsData updated = previous;
+    SaveResult result;
+
     if (server.hasArg("deviceName")) {
-        updated.deviceName = trimmedArg("deviceName");
+        const String newDeviceName = Validation::trim(server.arg("deviceName"));
+        if (newDeviceName.length() == 0) {
+            updated.deviceName = appconfig::kDefaultDeviceName;
+            addValidationIssue(result, "deviceName", "Device name cannot be empty. Default name applied");
+        } else {
+            updated.deviceName = newDeviceName;
+        }
+
+        if (updated.deviceName != previous.deviceName) {
+            result.restartRequired = true;
+        }
     }
+
     const bool wifiForm = server.hasArg("wifiSsid") || server.hasArg("wifiPassword");
     if (wifiForm) {
         // Wi-Fi form intentionally sends full credential pair, including empty password for open networks.
         updated.wifiSsid = trimmedArg("wifiSsid");
         updated.wifiPassword = trimmedArg("wifiPassword");
+
+        if (updated.wifiSsid != previous.wifiSsid || updated.wifiPassword != previous.wifiPassword) {
+            result.restartRequired = true;
+        }
     }
+
     if (server.hasArg("sensorReadIntervalMs")) {
-        updated.sensorReadIntervalMs = parseUnsignedLongArg(trimmedArg("sensorReadIntervalMs"), appconfig::kSensorReadIntervalMs);
+        unsigned long parsedInterval = 0;
+        if (!Validation::parseUnsignedLongStrict(server.arg("sensorReadIntervalMs"), parsedInterval)) {
+            addValidationIssue(result, "sensorReadIntervalMs", "Sensor read interval must be a positive integer");
+        } else if (Validation::isValidSensorReadInterval(parsedInterval)) {
+            updated.sensorReadIntervalMs = parsedInterval;
+        } else {
+            addValidationIssue(result, "sensorReadIntervalMs", "Sensor read interval must be >= " + String(appconfig::kSensorReadIntervalMinMs) + " ms");
+        }
     }
 
     const bool thingSpeakForm = server.hasArg("thingSpeakApiKey") || server.hasArg("thingSpeakIntervalSeconds") || server.hasArg("thingSpeakEnabled");
     if (thingSpeakForm) {
-        updated.thingSpeakEnabled = server.hasArg("thingSpeakEnabled");
+        bool enabled = updated.thingSpeakEnabled;
+        if (server.hasArg("thingSpeakEnabled")) {
+            if (!Validation::parseBoolStrict(server.arg("thingSpeakEnabled"), enabled)) {
+                addValidationIssue(result, "thingSpeakEnabled", "ThingSpeak enabled flag must be 0 or 1");
+            }
+        }
+        updated.thingSpeakEnabled = enabled;
+
         updated.thingSpeakApiKey = trimmedArg("thingSpeakApiKey");
-        updated.thingSpeakIntervalSeconds = parseUnsignedLongArg(trimmedArg("thingSpeakIntervalSeconds"), appconfig::kThingSpeakIntervalMs / 1000UL);
-        if (updated.thingSpeakIntervalSeconds < 15UL) {
-            updated.thingSpeakIntervalSeconds = 15UL;
+
+        if (server.hasArg("thingSpeakIntervalSeconds")) {
+            unsigned long parsedInterval = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("thingSpeakIntervalSeconds"), parsedInterval)) {
+                addValidationIssue(result, "thingSpeakIntervalSeconds", "ThingSpeak interval must be a positive integer");
+            } else if (Validation::isValidCloudSendIntervalSeconds(parsedInterval)) {
+                updated.thingSpeakIntervalSeconds = parsedInterval;
+            } else {
+                addValidationIssue(result, "thingSpeakIntervalSeconds", "ThingSpeak interval must be >= 15 seconds");
+            }
+        }
+
+        if (updated.thingSpeakEnabled && updated.thingSpeakApiKey.length() == 0) {
+            addValidationIssue(result, "thingSpeakApiKey", "ThingSpeak is enabled but API key is empty");
         }
     }
 
     const bool customHttpForm = server.hasArg("customHttpUrlTemplate") || server.hasArg("customHttpBodyTemplate") || server.hasArg("customHttpIntervalSeconds") || server.hasArg("customHttpEnabled");
     if (customHttpForm) {
-        updated.customHttpEnabled = server.hasArg("customHttpEnabled");
-        updated.customHttpMethod = trimmedArg("customHttpMethod");
+        bool enabled = updated.customHttpEnabled;
+        if (server.hasArg("customHttpEnabled")) {
+            if (!Validation::parseBoolStrict(server.arg("customHttpEnabled"), enabled)) {
+                addValidationIssue(result, "customHttpEnabled", "Custom HTTP enabled flag must be 0 or 1");
+            }
+        }
+        updated.customHttpEnabled = enabled;
+
+        String method = trimmedArg("customHttpMethod");
+        if (method.length() == 0) {
+            method = appconfig::kDefaultCustomHttpMethod;
+        }
+        if (Validation::isValidHttpMethod(method)) {
+            updated.customHttpMethod = Validation::normalizeHttpMethod(method);
+        } else {
+            addValidationIssue(result, "customHttpMethod", "Custom HTTP method must be GET, POST, PUT or PATCH");
+        }
+
         updated.customHttpUrlTemplate = trimmedArg("customHttpUrlTemplate");
+
         updated.customHttpContentType = trimmedArg("customHttpContentType");
+        if (updated.customHttpContentType.length() == 0) {
+            updated.customHttpContentType = appconfig::kDefaultCustomHttpContentType;
+            addValidationIssue(result, "customHttpContentType", "Custom HTTP content type was empty. Default value applied");
+        }
+
         updated.customHttpBodyTemplate = trimmedArg("customHttpBodyTemplate");
-        updated.customHttpIntervalSeconds = parseUnsignedLongArg(trimmedArg("customHttpIntervalSeconds"), appconfig::kCustomHttpIntervalMs / 1000UL);
-        if (updated.customHttpIntervalSeconds < 15UL) {
-            updated.customHttpIntervalSeconds = 15UL;
+
+        if (server.hasArg("customHttpIntervalSeconds")) {
+            unsigned long parsedInterval = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("customHttpIntervalSeconds"), parsedInterval)) {
+                addValidationIssue(result, "customHttpIntervalSeconds", "Custom HTTP interval must be a positive integer");
+            } else if (Validation::isValidCloudSendIntervalSeconds(parsedInterval)) {
+                updated.customHttpIntervalSeconds = parsedInterval;
+            } else {
+                addValidationIssue(result, "customHttpIntervalSeconds", "Custom HTTP interval must be >= 15 seconds");
+            }
+        }
+
+        if (updated.customHttpEnabled) {
+            if (updated.customHttpUrlTemplate.length() == 0) {
+                addValidationIssue(result, "customHttpUrlTemplate", "Custom HTTP is enabled but URL template is empty");
+            } else if (!(updated.customHttpUrlTemplate.startsWith("http://") || updated.customHttpUrlTemplate.startsWith("https://"))) {
+                addValidationIssue(result, "customHttpUrlTemplate", "Custom HTTP URL template must start with http:// or https://");
+            }
         }
     }
 
@@ -204,8 +306,21 @@ void handleSave() {
 
     settings::apply(updated);
     settings::save();
-    setWebMessage("Settings saved", 5000);
-    restartRequested = true;
+    if (result.hasValidationWarnings) {
+        setWebMessage("Saved with validation warnings: " + result.validationMessage, 8000);
+    } else {
+        setWebMessage("Settings saved", 5000);
+    }
+    result.saved = true;
+    if (result.restartRequired) {
+        restartRequested = true;
+    }
+
+    return result;
+}
+
+void handleSave() {
+    processSaveRequest();
 
     server.sendHeader("Location", "/");
     server.send(303, "text/plain", "Saved");
@@ -224,7 +339,16 @@ void handleCalibrate() {
 }
 
 void handleApiPost() {
-    handleSave();
+    SaveResult result = processSaveRequest();
+    String json = "{";
+    json += "\"ok\":true";
+    json += ",\"saved\":" + String(result.saved ? "true" : "false");
+    json += ",\"restartRequired\":" + String(result.restartRequired ? "true" : "false");
+    json += ",\"hasValidationWarnings\":" + String(result.hasValidationWarnings ? "true" : "false");
+    json += ",\"message\":\"" + jsonEscape(result.hasValidationWarnings ? ("Saved with validation warnings: " + result.validationMessage) : String("Settings saved")) + "\"";
+    json += ",\"validationIssues\":" + result.validationIssuesJson;
+    json += "}";
+    server.send(200, "application/json", json);
 }
 
 void handleUpdateDone() {

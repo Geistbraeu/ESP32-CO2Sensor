@@ -1,76 +1,216 @@
 #include "sensors/Co2Sensor.h"
 
-#include <HardwareSerial.h>
-#include <MHZ19.h>
+#include <SensirionErrors.h>
+#include <SensirionI2CScd4x.h>
+#include <Wire.h>
 
 #include "app_config.h"
+#include "app_i2c_lock.h"
 #include "app_state.h"
 
 namespace {
-HardwareSerial co2Serial(2);
-MHZ19 myMHZ19;
-SemaphoreHandle_t co2SerialMutex = nullptr;
-unsigned long warmupEndsAtMs = 0;
+SensirionI2cScd4x scd4x;
+SemaphoreHandle_t sensorMutex = nullptr;
+bool sensorReady = false;
+bool wireInitialized = false;
+unsigned long loopCounter = 0;
+unsigned long nextInitAttemptMs = 0;
+constexpr unsigned long kInitRetryMs = 2000;
+constexpr unsigned long kStartupDelayMs = 5000;
 
-bool isWarmupActive(unsigned long nowMs) {
-    return static_cast<long>(warmupEndsAtMs - nowMs) > 0;
+String decodeSensirionError(int16_t errorCode) {
+    char message[96] = {0};
+    errorToString(static_cast<uint16_t>(errorCode), message, sizeof(message));
+    return String(message);
 }
 
-uint16_t warmupRemainingSec(unsigned long nowMs) {
-    if (!isWarmupActive(nowMs)) {
-        return 0;
+int probeI2cAddress(uint8_t address) {
+    Wire.beginTransmission(address);
+    return Wire.endTransmission();
+}
+
+bool tryInitSensor(const char* reason) {
+    Serial.println(String("[SCD40] init: begin reason=") + reason);
+
+    if (!applocks::lockI2c(pdMS_TO_TICKS(500))) {
+        sensorReady = false;
+        Serial.println("[SCD40] init: failed, I2C lock timeout");
+        return false;
     }
-    unsigned long remainingMs = warmupEndsAtMs - nowMs;
-    return static_cast<uint16_t>((remainingMs + 999UL) / 1000UL);
+
+    if (!wireInitialized) {
+        Wire.begin(appconfig::kI2CSdaPin, appconfig::kI2CSclPin);
+        Wire.setClock(100000);
+        wireInitialized = true;
+    }
+
+    int probe62 = probeI2cAddress(SCD40_I2C_ADDR_62);
+    int probe3c = probeI2cAddress(appconfig::kOledI2cAddress);
+    Serial.println("[SCD40] init: probe 0x62=" + String(probe62) + " probe 0x3C=" + String(probe3c));
+
+    scd4x.begin(Wire, SCD40_I2C_ADDR_62);
+    int16_t stopError = scd4x.stopPeriodicMeasurement();
+    delay(500);
+    int16_t reinitError = scd4x.reinit();
+    delay(30);
+    int16_t startError = scd4x.startPeriodicMeasurement();
+    int16_t lowPowerStartError = 0;
+    if (startError != 0) {
+        lowPowerStartError = scd4x.startLowPowerPeriodicMeasurement();
+        if (lowPowerStartError == 0) {
+            startError = 0;
+        }
+    }
+
+    sensorReady = startError == 0;
+    applocks::unlockI2c();
+
+    Serial.println("[SCD40] init: stop status=" + String(stopError) + " msg='" + decodeSensirionError(stopError) + "'");
+    Serial.println("[SCD40] init: reinit status=" + String(reinitError) + " msg='" + decodeSensirionError(reinitError) + "'");
+    Serial.println("[SCD40] init: startPeriodicMeasurement status=" + String(startError) +
+                   " sensorReady=" + String(sensorReady ? 1 : 0) +
+                   " msg='" + decodeSensirionError(startError) + "'");
+    if (lowPowerStartError != 0) {
+        Serial.println("[SCD40] init: startLowPowerPeriodicMeasurement status=" + String(lowPowerStartError) +
+                       " msg='" + decodeSensirionError(lowPowerStartError) + "'");
+    }
+
+    if (!sensorReady) {
+        nextInitAttemptMs = millis() + kInitRetryMs;
+    }
+
+    return sensorReady;
+}
+
+void logLoopStatus(const char* phase, int16_t statusError, bool dataReady, bool readOk,
+                   uint16_t ppm, float temperature, float humidity, bool ppmValid) {
+    String msg = "[SCD40] loop#" + String(loopCounter) +
+                 " phase=" + String(phase) +
+                 " status=" + String(statusError) +
+                 " ready=" + String(dataReady ? 1 : 0) +
+                 " readOk=" + String(readOk ? 1 : 0) +
+                 " ppm=" + String(ppm) +
+                 " t=" + String(temperature, 1) +
+                 " h=" + String(humidity, 1) +
+                 " valid=" + String(ppmValid ? 1 : 0);
+    Serial.println(msg);
 }
 }  // namespace
 
 namespace sensor {
 void begin() {
-    co2Serial.begin(appconfig::kCo2SensorBaud, SERIAL_8N1, appconfig::kCo2SensorRxPin, appconfig::kCo2SensorTxPin);
-    myMHZ19.begin(co2Serial);
-    myMHZ19.autoCalibration(false);
-    warmupEndsAtMs = millis() + appconfig::kSensorWarmupMs;
+    unsigned long nowMs = millis();
+    nextInitAttemptMs = nowMs + kStartupDelayMs;
+    Serial.println("[SCD40] startup delay before first init: " + String(kStartupDelayMs) + " ms");
 
-    if (co2SerialMutex == nullptr) {
-        co2SerialMutex = xSemaphoreCreateMutex();
+    bool started = false;
+
+    if (sensorMutex == nullptr) {
+        sensorMutex = xSemaphoreCreateMutex();
     }
 
     if (lockAppState()) {
-        gAppState.sensorWarmingUp = true;
-        gAppState.sensorWarmupRemainingSec = warmupRemainingSec(millis());
-        gAppState.sensorError = "Sensor warming up";
+        gAppState.sensorConnected = started;
+        gAppState.sensorError = started ? String("") : String("SCD40 startup delay");
         unlockAppState();
     }
 }
 
 void loop() {
-    if (co2SerialMutex != nullptr && xSemaphoreTake(co2SerialMutex, pdMS_TO_TICKS(600)) != pdTRUE) {
+    ++loopCounter;
+
+    if (!sensorReady) {
+        unsigned long nowMs = millis();
+        if (static_cast<long>(nextInitAttemptMs - nowMs) > 0) {
+            unsigned long waitMs = nextInitAttemptMs - nowMs;
+            Serial.println("[SCD40] loop#" + String(loopCounter) + " phase=startup-wait ms=" + String(waitMs));
+            if (lockAppState()) {
+                gAppState.sensorConnected = false;
+                gAppState.climateValid = false;
+                gAppState.sensorError = "SCD40 startup delay";
+                unlockAppState();
+            }
+            return;
+        }
+
+        if (static_cast<long>(nowMs - nextInitAttemptMs) >= 0) {
+            bool started = tryInitSensor("retry");
+            if (started && lockAppState()) {
+                gAppState.sensorConnected = true;
+                gAppState.sensorError.clear();
+                unlockAppState();
+                return;
+            }
+        }
+
+        Serial.println("[SCD40] loop#" + String(loopCounter) + " phase=not-ready");
+        if (lockAppState()) {
+            gAppState.sensorConnected = false;
+            gAppState.climateValid = false;
+            gAppState.sensorError = "SCD40 init failed";
+            unlockAppState();
+        }
         return;
     }
 
-    int ppm = myMHZ19.getCO2();
-    bool ok = ppm >= 250 && ppm <= 10000;
-    unsigned long nowMs = millis();
-    bool warmingUp = isWarmupActive(nowMs);
-    uint16_t remainingSec = warmupRemainingSec(nowMs);
-
-    if (co2SerialMutex != nullptr) {
-        xSemaphoreGive(co2SerialMutex);
+    if (sensorMutex != nullptr && xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(600)) != pdTRUE) {
+        Serial.println("[SCD40] loop#" + String(loopCounter) + " phase=sensor-mutex-timeout");
+        return;
     }
 
-    if (ok) {
+    if (!applocks::lockI2c(pdMS_TO_TICKS(400))) {
+        Serial.println("[SCD40] loop#" + String(loopCounter) + " phase=i2c-lock-timeout");
+        if (sensorMutex != nullptr) {
+            xSemaphoreGive(sensorMutex);
+        }
+        return;
+    }
+
+    bool dataReady = false;
+    int16_t statusError = scd4x.getDataReadyStatus(dataReady);
+    uint16_t ppm = 0;
+    float temperature = 0.0f;
+    float humidity = 0.0f;
+    int16_t readError = 0;
+    bool readOk = false;
+    if (statusError == 0 && dataReady) {
+        readError = scd4x.readMeasurement(ppm, temperature, humidity);
+        readOk = readError == 0;
+    }
+    applocks::unlockI2c();
+
+    if (sensorMutex != nullptr) {
+        xSemaphoreGive(sensorMutex);
+    }
+
+    if (statusError == 0 && !dataReady) {
+        logLoopStatus("no-data", statusError, dataReady, readOk, ppm, temperature, humidity, false);
         if (lockAppState()) {
             gAppState.sensorConnected = true;
-            gAppState.sensorWarmingUp = warmingUp;
-            gAppState.sensorWarmupRemainingSec = remainingSec;
+            gAppState.sensorError.clear();
+            unlockAppState();
+        }
+        return;
+    }
+
+    bool ppmValid = readOk && ppm >= 250 && ppm <= 10000;
+    logLoopStatus("read", readError != 0 ? readError : statusError, dataReady, readOk, ppm, temperature, humidity, ppmValid);
+
+    if (readError != 0) {
+        Serial.println("[SCD40] loop#" + String(loopCounter) + " read error msg='" + decodeSensirionError(readError) + "'");
+    } else if (statusError != 0) {
+        Serial.println("[SCD40] loop#" + String(loopCounter) + " status error msg='" + decodeSensirionError(statusError) + "'");
+    }
+
+    if (ppmValid) {
+        if (lockAppState()) {
+            gAppState.sensorConnected = true;
             gAppState.co2Ppm = ppm;
-            if (warmingUp) {
-                gAppState.sensorError = "Sensor warming up";
-            } else {
-                gAppState.lastValidPpm = ppm;
-                gAppState.sensorError.clear();
-            }
+            gAppState.temperatureC = temperature;
+            gAppState.humidityPct = humidity;
+            gAppState.climateValid = true;
+            gAppState.lastValidPpm = ppm;
+            gAppState.sensorError.clear();
             unlockAppState();
         }
         return;
@@ -78,9 +218,8 @@ void loop() {
 
     if (lockAppState()) {
         gAppState.sensorConnected = false;
-        gAppState.sensorWarmingUp = warmingUp;
-        gAppState.sensorWarmupRemainingSec = remainingSec;
-        gAppState.sensorError = warmingUp ? String("Sensor warming up") : String("CO2 read failed");
+        gAppState.climateValid = false;
+        gAppState.sensorError = statusError != 0 ? String("SCD40 communication error") : String("CO2 read failed");
         if (gAppState.lastValidPpm > 0) {
             gAppState.co2Ppm = gAppState.lastValidPpm;
         }
@@ -89,15 +228,51 @@ void loop() {
 }
 
 bool calibrateZero(String &error) {
-    if (co2SerialMutex != nullptr && xSemaphoreTake(co2SerialMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    Serial.println("[SCD40] calibrate: begin");
+
+    if (!sensorReady) {
+        Serial.println("[SCD40] calibrate: sensor not initialized");
+        error = "SCD40 is not initialized";
+        return false;
+    }
+
+    if (sensorMutex != nullptr && xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
+        Serial.println("[SCD40] calibrate: sensor mutex timeout");
         error = "CO2 sensor is busy";
         return false;
     }
 
-    myMHZ19.calibrate();
+    if (!applocks::lockI2c(pdMS_TO_TICKS(1000))) {
+        Serial.println("[SCD40] calibrate: I2C lock timeout");
+        if (sensorMutex != nullptr) {
+            xSemaphoreGive(sensorMutex);
+        }
+        error = "I2C bus busy";
+        return false;
+    }
 
-    if (co2SerialMutex != nullptr) {
-        xSemaphoreGive(co2SerialMutex);
+    bool stopped = scd4x.stopPeriodicMeasurement() == 0;
+    delay(500);
+
+    uint16_t frcCorrection = 0;
+    bool frcOk = stopped && (scd4x.performForcedRecalibration(400, frcCorrection) == 0);
+
+    delay(500);
+    bool restarted = scd4x.startPeriodicMeasurement() == 0;
+    applocks::unlockI2c();
+
+    if (sensorMutex != nullptr) {
+        xSemaphoreGive(sensorMutex);
+    }
+
+    Serial.println("[SCD40] calibrate: stopped=" + String(stopped ? 1 : 0) +
+                   " frcOk=" + String(frcOk ? 1 : 0) +
+                   " frcCorrection=" + String(frcCorrection) +
+                   " restarted=" + String(restarted ? 1 : 0));
+
+    if (!frcOk || !restarted || frcCorrection == 0xFFFF) {
+        error = "Calibration failed. Keep sensor running 3+ min in fresh air (~400 ppm) and retry";
+        return false;
     }
 
     error = "";

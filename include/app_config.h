@@ -23,7 +23,7 @@ constexpr uint8_t kCo2SensorTxPin = 17;
 constexpr uint32_t kCo2SensorBaud = 9600;
 
 constexpr unsigned long kSensorReadIntervalMs = 5000;
-constexpr unsigned long kSensorWarmupMs = 180000;
+constexpr unsigned long kSensorReadIntervalMinMs = 5000;
 constexpr unsigned long kDisplayRefreshIntervalMs = 1000;
 constexpr unsigned long kThingSpeakIntervalMs = 30000;
 constexpr unsigned long kCustomHttpIntervalMs = 30000;

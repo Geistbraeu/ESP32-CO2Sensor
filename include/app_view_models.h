@@ -11,10 +11,11 @@ struct RuntimeSnapshot {
     String ipAddress;
     String apAddress;
     bool sensorConnected = false;
-    bool sensorWarmingUp = false;
-    uint16_t sensorWarmupRemainingSec = 0;
     uint16_t co2Ppm = 0;
     uint16_t lastValidPpm = 0;
+    float temperatureC = 0.0f;
+    float humidityPct = 0.0f;
+    bool climateValid = false;
     String sensorError;
     String cloudStatus;
     String cloudError;
@@ -45,10 +46,11 @@ inline RuntimeSnapshot getRuntimeSnapshot(TickType_t timeoutTicks = pdMS_TO_TICK
     snapshot.ipAddress = state.ipAddress;
     snapshot.apAddress = state.apAddress;
     snapshot.sensorConnected = state.sensorConnected;
-    snapshot.sensorWarmingUp = state.sensorWarmingUp;
-    snapshot.sensorWarmupRemainingSec = state.sensorWarmupRemainingSec;
     snapshot.co2Ppm = state.co2Ppm;
     snapshot.lastValidPpm = state.lastValidPpm;
+    snapshot.temperatureC = state.temperatureC;
+    snapshot.humidityPct = state.humidityPct;
+    snapshot.climateValid = state.climateValid;
     snapshot.sensorError = state.sensorError;
     snapshot.cloudStatus = state.cloudStatus;
     snapshot.cloudError = state.cloudError;

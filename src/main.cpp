@@ -1,4 +1,5 @@
 #include "app_config.h"
+#include "app_i2c_lock.h"
 #include "app_state.h"
 #include "cloud/CloudManager.h"
 #include "display/OledDisplay.h"
@@ -29,8 +30,8 @@ void sensorTask(void *parameter) {
     sensor::loop();
     SettingsData config = settings::get();
     unsigned long delayMs = config.sensorReadIntervalMs;
-    if (delayMs == 0) {
-      delayMs = appconfig::kSensorReadIntervalMs;
+    if (delayMs < appconfig::kSensorReadIntervalMinMs) {
+      delayMs = appconfig::kSensorReadIntervalMinMs;
     }
     vTaskDelay(pdMS_TO_TICKS(delayMs));
   }
@@ -55,6 +56,8 @@ void setup() {
   if (gAppState.settingsMutex == nullptr) {
     gAppState.settingsMutex = xSemaphoreCreateMutex();
   }
+
+  applocks::initI2cMutex();
 
   settings::begin();
   wifiportal::begin();

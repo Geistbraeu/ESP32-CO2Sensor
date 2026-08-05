@@ -27,6 +27,58 @@ constexpr const char *kKeyCustomHttpInterval = "httpInterval";
 String readString(const char *key, const String &fallback) {
     return preferences.getString(key, fallback.c_str());
 }
+
+unsigned long normalizeSensorReadInterval(unsigned long value) {
+    if (value < appconfig::kSensorReadIntervalMinMs) {
+        return appconfig::kSensorReadIntervalMinMs;
+    }
+    return value;
+}
+
+unsigned long normalizeThingSpeakIntervalSeconds(unsigned long value) {
+    if (value < 15UL) {
+        return 15UL;
+    }
+    return value;
+}
+
+unsigned long normalizeCustomHttpIntervalSeconds(unsigned long value) {
+    if (value < 15UL) {
+        return 15UL;
+    }
+    return value;
+}
+
+String normalizeCustomHttpMethod(const String &value) {
+    String method = value;
+    method.trim();
+    method.toUpperCase();
+    if (method == "GET" || method == "POST" || method == "PUT" || method == "PATCH") {
+        return method;
+    }
+    return String(appconfig::kDefaultCustomHttpMethod);
+}
+
+String normalizeContentType(const String &value) {
+    String contentType = value;
+    contentType.trim();
+    if (contentType.length() == 0) {
+        return String(appconfig::kDefaultCustomHttpContentType);
+    }
+    return contentType;
+}
+
+void normalizeSettings(SettingsData &value) {
+    value.sensorReadIntervalMs = normalizeSensorReadInterval(value.sensorReadIntervalMs);
+    value.thingSpeakIntervalSeconds = normalizeThingSpeakIntervalSeconds(value.thingSpeakIntervalSeconds);
+    value.customHttpIntervalSeconds = normalizeCustomHttpIntervalSeconds(value.customHttpIntervalSeconds);
+    value.customHttpMethod = normalizeCustomHttpMethod(value.customHttpMethod);
+    value.customHttpContentType = normalizeContentType(value.customHttpContentType);
+
+    if (value.deviceName.length() == 0) {
+        value.deviceName = appconfig::kDefaultDeviceName;
+    }
+}
 }  // namespace
 
 namespace settings {
@@ -55,13 +107,16 @@ SettingsData get() {
 }
 
 void apply(const SettingsData &value) {
+    SettingsData normalized = value;
+    normalizeSettings(normalized);
+
     if (gAppState.settingsMutex != nullptr && xSemaphoreTake(gAppState.settingsMutex, portMAX_DELAY) == pdTRUE) {
-        currentSettings = value;
+        currentSettings = normalized;
         xSemaphoreGive(gAppState.settingsMutex);
         return;
     }
 
-    currentSettings = value;
+    currentSettings = normalized;
 }
 
 bool load() {
@@ -86,9 +141,12 @@ bool load() {
 
     preferences.end();
 
-    if (currentSettings.deviceName.length() == 0) {
-        currentSettings.deviceName = appconfig::kDefaultDeviceName;
+    // Legacy builds used 180000 ms warm-up timing; treat it as stale polling interval.
+    if (currentSettings.sensorReadIntervalMs == 0 || currentSettings.sensorReadIntervalMs == 180000UL) {
+        currentSettings.sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
     }
+
+    normalizeSettings(currentSettings);
 
     return true;
 }
@@ -105,6 +163,8 @@ bool save() {
     if (!preferences.begin(kNamespace, false)) {
         return false;
     }
+
+    normalizeSettings(snapshot);
 
     preferences.putString(kKeyDeviceName, snapshot.deviceName);
     preferences.putString(kKeyWifiSsid, snapshot.wifiSsid);

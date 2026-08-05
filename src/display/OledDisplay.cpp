@@ -5,6 +5,7 @@
 #include <Wire.h>
 
 #include "app_config.h"
+#include "app_i2c_lock.h"
 #include "app_view_models.h"
 
 namespace {
@@ -35,6 +36,16 @@ String clipTextToWidth(const String &value, uint8_t size, int16_t maxWidth) {
     }
 
     return result;
+}
+
+uint16_t textWidth(const String &text, uint8_t size) {
+    display.setTextSize(size);
+    int16_t x1 = 0;
+    int16_t y1 = 0;
+    uint16_t w = 0;
+    uint16_t h = 0;
+    display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+    return w;
 }
 
 void drawCenteredText(int y, const String &text, uint8_t size) {
@@ -97,6 +108,12 @@ void drawRightAlignedText(int y, const String &text, uint8_t size, int16_t right
     display.print(text);
 }
 
+void drawLeftAlignedText(int y, const String &text, uint8_t size, int16_t leftMargin = 0) {
+    display.setTextSize(size);
+    display.setCursor(leftMargin, y);
+    display.print(text);
+}
+
 void drawWifiIcon(int x, int y, WifiIconState state) {
     constexpr int iconWidth = 16;
     constexpr int iconHeight = 16;
@@ -125,12 +142,19 @@ void drawWifiIcon(int x, int y, WifiIconState state) {
 
 namespace displayui {
 void begin() {
+    if (!applocks::lockI2c(pdMS_TO_TICKS(500))) {
+        displayReady = false;
+        return;
+    }
+
     Wire.begin(appconfig::kI2CSdaPin, appconfig::kI2CSclPin);
     displayReady = display.begin(SSD1306_SWITCHCAPVCC, appconfig::kOledI2cAddress);
     if (displayReady) {
         display.clearDisplay();
         display.display();
     }
+
+    applocks::unlockI2c();
 }
 
 void loop() {
@@ -150,10 +174,32 @@ void loop() {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
 
+    constexpr int16_t kTopTextY = 4;
+    constexpr int16_t kWifiIconX = 111;
+    constexpr int16_t kTopGap = 3;
+
+    String tempValueText = state.climateValid ? String(state.temperatureC, 1) : String("--.-");
+    String tempText = tempValueText + " ";
+    uint16_t tempWidth = textWidth(tempText, 1);
+    int16_t tempX = static_cast<int16_t>(kWifiIconX - kTopGap - tempWidth);
+    if (tempX < 0) {
+        tempX = 0;
+    }
+
+    int16_t titleMaxWidth = tempX - kTopGap;
+    if (titleMaxWidth < 0) {
+        titleMaxWidth = 0;
+    }
+
     display.setTextSize(1);
-    String title = clipTextToWidth(config.deviceName, 1, 90);
-    display.setCursor(0, 4);
+    String title = clipTextToWidth(config.deviceName, 1, titleMaxWidth);
+    display.setCursor(0, kTopTextY);
     display.print(title);
+
+    display.setCursor(tempX, kTopTextY);
+    display.print(tempText);
+    int16_t degreeX = tempX + static_cast<int16_t>(textWidth(tempValueText, 1)) + 2;
+    display.drawCircle(degreeX, kTopTextY + 2, 1, SSD1306_WHITE);
 
     WifiIconState wifiIconState = WifiIconState::Offline;
     if (state.wifiConnected) {
@@ -161,7 +207,7 @@ void loop() {
     } else if (state.setupMode) {
         wifiIconState = WifiIconState::AccessPoint;
     }
-    drawWifiIcon(111, 0, wifiIconState);
+    drawWifiIcon(kWifiIconX, 0, wifiIconState);
 
     if (wifiIconState == WifiIconState::AccessPoint) {
         display.setTextSize(1);
@@ -174,6 +220,9 @@ void loop() {
     String ppmValue = state.lastValidPpm > 0 ? String(state.co2Ppm) : String("---");
     drawPpmReading(22, ppmValue);
 
+    String humidityText = state.climateValid ? String(state.humidityPct, 1) + "%" : String("--.-%");
+    drawLeftAlignedText(56, humidityText, 1, 2);
+
     String ipText;
     if (state.wifiConnected) {
         ipText = state.ipAddress;
@@ -182,9 +231,12 @@ void loop() {
     } else {
         ipText = String("OFF");
     }
-    ipText = clipTextToWidth(ipText, 1, appconfig::kOledWidth - 2);
+    ipText = clipTextToWidth(ipText, 1, appconfig::kOledWidth - 52);
     drawRightAlignedText(56, ipText, 1, 2);
 
-    display.display();
+    if (applocks::lockI2c(pdMS_TO_TICKS(250))) {
+        display.display();
+        applocks::unlockI2c();
+    }
 }
 }  // namespace displayui
