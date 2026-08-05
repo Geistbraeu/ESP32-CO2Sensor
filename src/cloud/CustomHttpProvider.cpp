@@ -8,9 +8,11 @@
 #include "app_view_models.h"
 
 namespace {
-String replacePpmToken(String value) {
+String replaceTemplateTokens(String value) {
     RuntimeSnapshot state = getRuntimeSnapshot();
     value.replace("{ppm}", String(state.lastValidPpm));
+    value.replace("{temp}", String(state.temperatureC, 1));
+    value.replace("{hum}", String(state.humidityPct, 1));
     return value;
 }
 
@@ -26,13 +28,18 @@ bool beginHttpClient(HTTPClient &http, const String &url, WiFiClient &client, Wi
 namespace cloudcustomhttp {
 bool send() {
     SettingsSnapshot config = getSettingsSnapshot();
+    RuntimeSnapshot state = getRuntimeSnapshot();
     if (!config.customHttpEnabled || config.customHttpUrlTemplate.length() == 0) {
         return false;
     }
 
+    if (!state.climateValid || (state.temperatureC == 0.0f && state.humidityPct == 0.0f)) {
+        return false;
+    }
+
     const String method = config.customHttpMethod;
-    String url = replacePpmToken(config.customHttpUrlTemplate);
-    String body = replacePpmToken(config.customHttpBodyTemplate);
+    String url = replaceTemplateTokens(config.customHttpUrlTemplate);
+    String body = replaceTemplateTokens(config.customHttpBodyTemplate);
 
     HTTPClient http;
     WiFiClient client;

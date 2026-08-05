@@ -14,6 +14,7 @@ constexpr const char *kKeyDeviceName = "deviceName";
 constexpr const char *kKeyWifiSsid = "wifiSsid";
 constexpr const char *kKeyWifiPassword = "wifiPass";
 constexpr const char *kKeySensorReadInterval = "sensorReadMs";
+constexpr const char *kKeySensorAltitude = "sensorAlt";
 constexpr const char *kKeyThingSpeakEnabled = "tsEnable";
 constexpr const char *kKeyThingSpeakApiKey = "tsKey";
 constexpr const char *kKeyThingSpeakInterval = "tsInterval";
@@ -33,6 +34,16 @@ unsigned long normalizeSensorReadInterval(unsigned long value) {
         return appconfig::kSensorReadIntervalMinMs;
     }
     return value;
+}
+
+uint16_t normalizeSensorAltitude(unsigned long value) {
+    if (value < appconfig::kSensorAltitudeMinMeters) {
+        return appconfig::kSensorAltitudeMinMeters;
+    }
+    if (value > appconfig::kSensorAltitudeMaxMeters) {
+        return appconfig::kSensorAltitudeMaxMeters;
+    }
+    return static_cast<uint16_t>(value);
 }
 
 unsigned long normalizeThingSpeakIntervalSeconds(unsigned long value) {
@@ -70,6 +81,7 @@ String normalizeContentType(const String &value) {
 
 void normalizeSettings(SettingsData &value) {
     value.sensorReadIntervalMs = normalizeSensorReadInterval(value.sensorReadIntervalMs);
+    value.sensorAltitudeMeters = normalizeSensorAltitude(value.sensorAltitudeMeters);
     value.thingSpeakIntervalSeconds = normalizeThingSpeakIntervalSeconds(value.thingSpeakIntervalSeconds);
     value.customHttpIntervalSeconds = normalizeCustomHttpIntervalSeconds(value.customHttpIntervalSeconds);
     value.customHttpMethod = normalizeCustomHttpMethod(value.customHttpMethod);
@@ -129,6 +141,7 @@ bool load() {
     currentSettings.wifiSsid = readString(kKeyWifiSsid, "");
     currentSettings.wifiPassword = readString(kKeyWifiPassword, "");
     currentSettings.sensorReadIntervalMs = preferences.getULong(kKeySensorReadInterval, appconfig::kSensorReadIntervalMs);
+    currentSettings.sensorAltitudeMeters = static_cast<uint16_t>(preferences.getULong(kKeySensorAltitude, appconfig::kSensorAltitudeDefaultMeters));
     currentSettings.thingSpeakEnabled = preferences.getBool(kKeyThingSpeakEnabled, false);
     currentSettings.thingSpeakApiKey = readString(kKeyThingSpeakApiKey, "");
     currentSettings.thingSpeakIntervalSeconds = preferences.getULong(kKeyThingSpeakInterval, appconfig::kThingSpeakIntervalMs / 1000UL);
@@ -170,6 +183,7 @@ bool save() {
     preferences.putString(kKeyWifiSsid, snapshot.wifiSsid);
     preferences.putString(kKeyWifiPassword, snapshot.wifiPassword);
     preferences.putULong(kKeySensorReadInterval, snapshot.sensorReadIntervalMs);
+    preferences.putULong(kKeySensorAltitude, snapshot.sensorAltitudeMeters);
     preferences.putBool(kKeyThingSpeakEnabled, snapshot.thingSpeakEnabled);
     preferences.putString(kKeyThingSpeakApiKey, snapshot.thingSpeakApiKey);
     preferences.putULong(kKeyThingSpeakInterval, snapshot.thingSpeakIntervalSeconds);

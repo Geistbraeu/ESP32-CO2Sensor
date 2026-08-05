@@ -138,6 +138,7 @@ String statusJson() {
     json += "\"cloudError\":\"" + jsonEscape(state.cloudError) + "\",";
     json += "\"webMessage\":\"" + jsonEscape(state.webMessage) + "\"";
     json += ",\"sensorReadIntervalMs\":" + String(config.sensorReadIntervalMs);
+    json += ",\"sensorAltitudeMeters\":" + String(config.sensorAltitudeMeters);
     json += ",\"thingSpeakIntervalSeconds\":" + String(config.thingSpeakIntervalSeconds);
     json += ",\"thingSpeakLastSyncMs\":" + String(cloudmanager::lastThingSpeakSyncMs());
     json += ",\"customHttpIntervalSeconds\":" + String(config.customHttpIntervalSeconds);
@@ -222,6 +223,19 @@ SaveResult processSaveRequest() {
             updated.sensorReadIntervalMs = parsedInterval;
         } else {
             addValidationIssue(result, "sensorReadIntervalMs", "Sensor read interval must be >= " + String(appconfig::kSensorReadIntervalMinMs) + " ms");
+        }
+    }
+
+    if (server.hasArg("sensorAltitudeMeters")) {
+        unsigned long parsedAltitude = 0;
+        if (!Validation::parseUnsignedLongStrict(server.arg("sensorAltitudeMeters"), parsedAltitude)) {
+            addValidationIssue(result, "sensorAltitudeMeters", "Sensor altitude must be a non-negative integer");
+        } else if (Validation::isValidSensorAltitude(parsedAltitude)) {
+            updated.sensorAltitudeMeters = static_cast<uint16_t>(parsedAltitude);
+        } else {
+            addValidationIssue(result, "sensorAltitudeMeters", "Sensor altitude must be between " +
+                                                     String(appconfig::kSensorAltitudeMinMeters) + " and " +
+                                                     String(appconfig::kSensorAltitudeMaxMeters) + " meters");
         }
     }
 

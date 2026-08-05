@@ -25,13 +25,20 @@ bool send() {
         return false;
     }
 
+    if (!state.climateValid || (state.temperatureC == 0.0f && state.humidityPct == 0.0f)) {
+        return false;
+    }
+
     String url = appconfig::kDefaultThingSpeakUrl;
     if (url.indexOf('?') < 0) {
         url += "?";
     } else if (!url.endsWith("&") && !url.endsWith("?")) {
         url += "&";
     }
-    url += "api_key=" + config.thingSpeakApiKey + "&field1=" + String(state.lastValidPpm);
+    url += "api_key=" + config.thingSpeakApiKey +
+           "&field1=" + String(state.lastValidPpm) +
+           "&field2=" + String(state.temperatureC, 1) +
+           "&field3=" + String(state.humidityPct, 1);
 
     HTTPClient http;
     WiFiClient client;

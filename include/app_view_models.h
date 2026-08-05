@@ -27,6 +27,7 @@ struct SettingsSnapshot {
     String wifiSsid;
     String wifiPassword;
     uint32_t sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
+    uint16_t sensorAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
     bool thingSpeakEnabled = false;
     String thingSpeakApiKey;
     uint32_t thingSpeakIntervalSeconds = appconfig::kThingSpeakIntervalMs / 1000UL;
@@ -65,6 +66,7 @@ inline SettingsSnapshot getSettingsSnapshot() {
     snapshot.wifiSsid = config.wifiSsid;
     snapshot.wifiPassword = config.wifiPassword;
     snapshot.sensorReadIntervalMs = config.sensorReadIntervalMs;
+    snapshot.sensorAltitudeMeters = config.sensorAltitudeMeters;
     snapshot.thingSpeakEnabled = config.thingSpeakEnabled;
     snapshot.thingSpeakApiKey = config.thingSpeakApiKey;
     snapshot.thingSpeakIntervalSeconds = config.thingSpeakIntervalSeconds;

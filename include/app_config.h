@@ -24,6 +24,9 @@ constexpr uint32_t kCo2SensorBaud = 9600;
 
 constexpr unsigned long kSensorReadIntervalMs = 5000;
 constexpr unsigned long kSensorReadIntervalMinMs = 5000;
+constexpr uint16_t kSensorAltitudeDefaultMeters = 520;
+constexpr uint16_t kSensorAltitudeMinMeters = 0;
+constexpr uint16_t kSensorAltitudeMaxMeters = 3000;
 constexpr unsigned long kDisplayRefreshIntervalMs = 1000;
 constexpr unsigned long kThingSpeakIntervalMs = 30000;
 constexpr unsigned long kCustomHttpIntervalMs = 30000;

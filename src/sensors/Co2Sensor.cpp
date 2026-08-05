@@ -7,6 +7,7 @@
 #include "app_config.h"
 #include "app_i2c_lock.h"
 #include "app_state.h"
+#include "settings/Settings.h"
 
 namespace {
 SensirionI2cScd4x scd4x;
@@ -15,6 +16,8 @@ bool sensorReady = false;
 bool wireInitialized = false;
 unsigned long loopCounter = 0;
 unsigned long nextInitAttemptMs = 0;
+uint16_t appliedAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
+bool altitudeApplied = false;
 constexpr unsigned long kInitRetryMs = 2000;
 constexpr unsigned long kStartupDelayMs = 5000;
 
@@ -53,6 +56,14 @@ bool tryInitSensor(const char* reason) {
     delay(500);
     int16_t reinitError = scd4x.reinit();
     delay(30);
+    SettingsData settingsSnapshot = settings::get();
+    uint16_t targetAltitudeMeters = settingsSnapshot.sensorAltitudeMeters;
+    int16_t altitudeError = 0;
+    if (reinitError == 0) {
+        altitudeError = scd4x.setSensorAltitude(targetAltitudeMeters);
+    } else {
+        altitudeError = reinitError;
+    }
     int16_t startError = scd4x.startPeriodicMeasurement();
     int16_t lowPowerStartError = 0;
     if (startError != 0) {
@@ -62,11 +73,17 @@ bool tryInitSensor(const char* reason) {
         }
     }
 
-    sensorReady = startError == 0;
+    sensorReady = (startError == 0) && (altitudeError == 0);
+    if (sensorReady) {
+        appliedAltitudeMeters = targetAltitudeMeters;
+        altitudeApplied = true;
+    }
     applocks::unlockI2c();
 
     Serial.println("[SCD40] init: stop status=" + String(stopError) + " msg='" + decodeSensirionError(stopError) + "'");
     Serial.println("[SCD40] init: reinit status=" + String(reinitError) + " msg='" + decodeSensirionError(reinitError) + "'");
+    Serial.println("[SCD40] init: setSensorAltitude(" + String(targetAltitudeMeters) + ") status=" + String(altitudeError) +
+                   " msg='" + decodeSensirionError(altitudeError) + "'");
     Serial.println("[SCD40] init: startPeriodicMeasurement status=" + String(startError) +
                    " sensorReady=" + String(sensorReady ? 1 : 0) +
                    " msg='" + decodeSensirionError(startError) + "'");
@@ -80,6 +97,50 @@ bool tryInitSensor(const char* reason) {
     }
 
     return sensorReady;
+}
+
+bool applyRuntimeAltitude(uint16_t altitudeMeters) {
+    if (sensorMutex != nullptr && xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
+        Serial.println("[SCD40] altitude: sensor mutex timeout");
+        return false;
+    }
+
+    if (!applocks::lockI2c(pdMS_TO_TICKS(1000))) {
+        Serial.println("[SCD40] altitude: I2C lock timeout");
+        if (sensorMutex != nullptr) {
+            xSemaphoreGive(sensorMutex);
+        }
+        return false;
+    }
+
+    int16_t stopError = scd4x.stopPeriodicMeasurement();
+    delay(200);
+    int16_t altitudeError = 0;
+    if (stopError == 0) {
+        altitudeError = scd4x.setSensorAltitude(altitudeMeters);
+    } else {
+        altitudeError = stopError;
+    }
+    int16_t startError = scd4x.startPeriodicMeasurement();
+
+    applocks::unlockI2c();
+    if (sensorMutex != nullptr) {
+        xSemaphoreGive(sensorMutex);
+    }
+
+    Serial.println("[SCD40] altitude: set=" + String(altitudeMeters) +
+                   " stop=" + String(stopError) +
+                   " setStatus=" + String(altitudeError) +
+                   " start=" + String(startError));
+
+    const bool ok = (stopError == 0) && (altitudeError == 0) && (startError == 0);
+    if (ok) {
+        appliedAltitudeMeters = altitudeMeters;
+        altitudeApplied = true;
+        return true;
+    }
+
+    return false;
 }
 
 void logLoopStatus(const char* phase, int16_t statusError, bool dataReady, bool readOk,
@@ -104,6 +165,8 @@ void begin() {
     Serial.println("[SCD40] startup delay before first init: " + String(kStartupDelayMs) + " ms");
 
     bool started = false;
+    altitudeApplied = false;
+    appliedAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
 
     if (sensorMutex == nullptr) {
         sensorMutex = xSemaphoreCreateMutex();
@@ -118,6 +181,16 @@ void begin() {
 
 void loop() {
     ++loopCounter;
+
+    SettingsData settingsSnapshot = settings::get();
+    if (sensorReady && (!altitudeApplied || settingsSnapshot.sensorAltitudeMeters != appliedAltitudeMeters)) {
+        if (!applyRuntimeAltitude(settingsSnapshot.sensorAltitudeMeters)) {
+            if (lockAppState()) {
+                gAppState.sensorError = "SCD40 altitude compensation update failed";
+                unlockAppState();
+            }
+        }
+    }
 
     if (!sensorReady) {
         unsigned long nowMs = millis();

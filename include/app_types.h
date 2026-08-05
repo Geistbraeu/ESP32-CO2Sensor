@@ -9,6 +9,7 @@ struct SettingsData {
     String wifiSsid;
     String wifiPassword;
     uint32_t sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
+    uint16_t sensorAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
 
     bool thingSpeakEnabled = false;
     String thingSpeakApiKey;

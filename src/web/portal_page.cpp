@@ -90,6 +90,7 @@ namespace webpage {String render() {
         html += "<div class='tab-panel active' id=tab-main><div class=stack>";
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Device name</label><div class=setting-row><input name=deviceName value='" + escapeHtml(config.deviceName) + "'><button class=btn-set type=submit>Set</button></div></div></form>";
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Sensor read interval, ms</label><div class=setting-row><input type=number min=5000 name=sensorReadIntervalMs value='" + String(config.sensorReadIntervalMs) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Controls how often the sensor task polls the CO2 sensor (minimum 5000 ms).</p></div></form>";
+        html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Sensor altitude, m</label><div class=setting-row><input type=number min=0 max=3000 name=sensorAltitudeMeters value='" + String(config.sensorAltitudeMeters) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Used for atmospheric pressure compensation in SCD40 (0-3000 m).</p></div></form>";
         html += "</div></div>";
 
         html += "<div class=tab-panel id=tab-wifi><form action=/save method=post><div class=stack><div class=setting-group><label class=setting-label>Wi-Fi SSID</label><input name=wifiSsid value='" + escapeHtml(wifiSsidValue) + "'></div><div class=setting-group><label class=setting-label>Wi-Fi password</label><input type=password name=wifiPassword value='" + escapeHtml(config.wifiPassword) + "'></div><div class=footer-actions><button class=btn-set type=submit>Save Wi-Fi</button></div><p class=hint>Use the access point if the device is offline. AP is named after the device.</p></div></form></div>";
@@ -110,11 +111,11 @@ namespace webpage {String render() {
         html += "<form action=/save method=post><div class=stack>";
         html += "<div class=setting-group><label class=setting-label>HTTP POST Enabled</label><div class=setting-row><select name=customHttpEnabled><option value=0" + String(config.customHttpEnabled ? "" : " selected") + ">Disabled</option><option value=1" + String(config.customHttpEnabled ? " selected" : "") + ">Enabled</option></select></div></div>";
         html += "<div class=setting-group><label class=setting-label>HTTP Method</label><div class=setting-row><input type=text name=customHttpMethod value='" + escapeHtml(config.customHttpMethod) + "' placeholder='POST'></div></div>";
-        html += "<div class=setting-group><label class=setting-label>Server Address (URL template)</label><div class=setting-row><input type=text name=customHttpUrlTemplate value='" + escapeHtml(config.customHttpUrlTemplate) + "' placeholder='http://192.168.1.100:8080/api/data?ppm={ppm}'></div></div>";
+        html += "<div class=setting-group><label class=setting-label>Server Address (URL template)</label><div class=setting-row><input type=text name=customHttpUrlTemplate value='" + escapeHtml(config.customHttpUrlTemplate) + "' placeholder='http://192.168.1.100:8080/api/data?ppm={ppm}&temp={temp}&hum={hum}'></div></div>";
         html += "<div class=setting-group><label class=setting-label>Content Type</label><div class=setting-row><input type=text name=customHttpContentType value='" + escapeHtml(config.customHttpContentType) + "' placeholder='application/json'></div></div>";
-        html += "<div class=setting-group><label class=setting-label>JSON Body Template</label><div class=setting-row><input type=text name=customHttpBodyTemplate value='" + escapeHtml(config.customHttpBodyTemplate) + "' placeholder='{\"ppm\":{ppm}}'></div></div>";
+        html += "<div class=setting-group><label class=setting-label>JSON Body Template</label><div class=setting-row><input type=text name=customHttpBodyTemplate value='" + escapeHtml(config.customHttpBodyTemplate) + "' placeholder='{\"ppm\":{ppm},\"temp\":{temp},\"hum\":{hum}}'></div></div>";
         html += "<div class=setting-group><label class=setting-label>Send Interval (seconds, min 15)</label><div class=setting-row><input type=number min=15 name=customHttpIntervalSeconds value='" + String(config.customHttpIntervalSeconds) + "'></div></div>";
-        html += "<div class=footer-actions><button class=btn-set type=submit>Save Custom HTTP</button></div><p class=hint>In custom HTTP use <b>{ppm}</b> in URL or body. Intervals are saved per provider.</p></div></form></div>";
+        html += "<div class=footer-actions><button class=btn-set type=submit>Save Custom HTTP</button></div><p class=hint>In custom HTTP use <b>{ppm}</b>, <b>{temp}</b>, and <b>{hum}</b> in URL or body. Intervals are saved per provider.</p></div></form></div>";
 
         html += "<div class=tab-panel id=tab-calibration><div class=stack>";
         html += "<div class=setting-group><label class=setting-label>Manual Calibration Steps</label>";
@@ -125,7 +126,7 @@ namespace webpage {String render() {
         html += "<div class=footer-actions><form id=calibrate-form action=/calibrate method=post><button class=btn type=button style='background:linear-gradient(135deg,#f27b7b,#f8c35f);color:#20120e' onclick='confirmCalibration()'>Calibrate</button></form></div>";
         html += "</div></div>";
 
-        html += "<div class=tab-panel id=tab-firmware><div class=stack><div class=setting-group><label class=setting-label>Firmware version</label><div class=setting-row><input id=firmware-version-value value='" + escapeHtml(appconfig::kFirmwareVersion) + "' readonly></div></div><div class=setting-group><label class=setting-label>Build date</label><div class=setting-row><input id=firmware-build-date-value value='" + escapeHtml(appconfig::firmwareBuildDateString()) + "' readonly></div></div><form id=firmware-upload-form action=/update method=post enctype='multipart/form-data'><div class=setting-group><label class=setting-label>Firmware upload</label><input type=file name=update accept='.bin'></div><div class=footer-actions><button class=btn-set type=submit>Upload OTA</button></div><p class=hint>Upload a compiled .bin file. Device will reboot after successful flash.</p></div></form></div>";
+        html += "<div class=tab-panel id=tab-firmware><div class=stack><div class=setting-group><label class=setting-label>Firmware version</label><div class=setting-row><input id=firmware-version-value value='" + escapeHtml(appconfig::kFirmwareVersion) + "' readonly></div></div><div class=setting-group><label class=setting-label>Build date</label><div class=setting-row><input id=firmware-build-date-value value='" + escapeHtml(appconfig::firmwareBuildDateString()) + "' readonly></div></div><form id=firmware-upload-form action=/update method=post enctype='multipart/form-data'><div class=setting-group><label class=setting-label>Firmware upload</label><input type=file name=update accept='.bin'></div><div id=firmware-upload-progress style='display:none;margin:8px 0 10px'><div style='height:8px;background:#263553;border-radius:999px;overflow:hidden'><div id=firmware-upload-progress-bar style='height:100%;width:0;background:linear-gradient(90deg,#59c3ff,#7cdbb2)'></div></div><p id=firmware-upload-progress-text class=hint style='margin-top:6px'>Uploading: 0%</p></div><div class=footer-actions><button class=btn-set type=submit>Upload OTA</button></div><p class=hint>Upload a compiled .bin file. Device will reboot after successful flash.</p></div></form></div>";
 
         html += "</div>";
 
@@ -175,6 +176,23 @@ function clearFirmwareUploadState() {
     }
 }
 
+function setFirmwareUploadProgress(percent) {
+    const progressWrap = document.getElementById('firmware-upload-progress');
+    const progressBar = document.getElementById('firmware-upload-progress-bar');
+    const progressText = document.getElementById('firmware-upload-progress-text');
+    if (!progressWrap || !progressBar || !progressText) return;
+
+    const clamped = Math.max(0, Math.min(100, percent));
+    progressWrap.style.display = 'block';
+    progressBar.style.width = clamped + '%';
+    progressText.textContent = 'Uploading: ' + clamped + '%';
+}
+
+function hideFirmwareUploadProgress() {
+    const progressWrap = document.getElementById('firmware-upload-progress');
+    if (progressWrap) progressWrap.style.display = 'none';
+}
+
 async function uploadFirmware(event) {
     event.preventDefault();
 
@@ -184,32 +202,54 @@ async function uploadFirmware(event) {
 
     if (submitButton) submitButton.disabled = true;
 
+    setFirmwareUploadProgress(0);
+    setStatusMessage('Uploading firmware...', 'success');
+    firmwareUploadPending = true;
+    firmwareUploadApiDownSeen = false;
+
     try {
-        const response = await fetch(form.action, {
-            method: 'POST',
-            body: formData,
-            cache: 'no-store'
+        const responseText = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', form.action);
+
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    setFirmwareUploadProgress(percent);
+                }
+            };
+
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.responseText || '');
+                } else {
+                    reject(new Error(xhr.responseText || 'Upload failed'));
+                }
+            };
+
+            xhr.onerror = () => reject(new Error('Upload failed'));
+            xhr.send(formData);
         });
 
-        const responseText = await response.text();
-        if (!response.ok || responseText.trim() !== 'OK') {
+        if (responseText.trim() !== 'OK') {
             throw new Error(responseText || 'Upload failed');
         }
 
-        firmwareUploadPending = true;
-        firmwareUploadApiDownSeen = false;
+        setFirmwareUploadProgress(100);
         if (firmwareUploadSuccessTimer !== null) {
             window.clearTimeout(firmwareUploadSuccessTimer);
         }
         firmwareUploadSuccessTimer = window.setTimeout(() => {
             if (firmwareUploadPending) {
                 clearFirmwareUploadState();
+                hideFirmwareUploadProgress();
                 clearStatusMessage();
             }
         }, 10000);
         setStatusMessage('Firmware uploaded. Device is rebooting.', 'success');
     } catch (error) {
         clearFirmwareUploadState();
+        hideFirmwareUploadProgress();
         setStatusMessage('Firmware upload failed.', 'error');
         console.warn(error);
     } finally {
@@ -272,6 +312,7 @@ async function refreshLiveData() {
 
         if (data.webMessage) {
             clearFirmwareUploadState();
+            hideFirmwareUploadProgress();
             setStatusMessage(data.webMessage, 'success');
         } else if (firmwareUploadPending) {
             const firmwareChanged = currentFirmwareVersion && currentFirmwareVersion !== (data.firmwareVersion || '')
@@ -279,9 +320,11 @@ async function refreshLiveData() {
 
             if (firmwareUploadApiDownSeen || firmwareChanged) {
                 clearFirmwareUploadState();
+                hideFirmwareUploadProgress();
                 clearStatusMessage();
             }
         } else {
+            hideFirmwareUploadProgress();
             clearStatusMessage();
         }
     } catch (error) {

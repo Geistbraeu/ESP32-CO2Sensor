@@ -18,6 +18,10 @@ inline bool isValidSensorReadInterval(unsigned long val) {
     return val >= appconfig::kSensorReadIntervalMinMs;
 }
 
+inline bool isValidSensorAltitude(unsigned long val) {
+    return val >= appconfig::kSensorAltitudeMinMeters && val <= appconfig::kSensorAltitudeMaxMeters;
+}
+
 inline bool isValidCloudSendIntervalSeconds(unsigned long val) {
     return val >= 15UL;
 }

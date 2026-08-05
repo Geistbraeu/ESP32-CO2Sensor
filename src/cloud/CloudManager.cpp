@@ -11,6 +11,13 @@
 namespace {
 unsigned long lastThingSpeakSendMs = 0;
 unsigned long lastCustomHttpSendMs = 0;
+
+bool hasValidClimateForCloud(const AppState &state) {
+    if (!state.climateValid) {
+        return false;
+    }
+    return !(state.temperatureC == 0.0f && state.humidityPct == 0.0f);
+}
 }
 
 namespace cloudmanager {
@@ -26,6 +33,10 @@ void loop() {
     }
 
     if (!state.sensorConnected || state.co2Ppm < 250 || state.co2Ppm > 10000) {
+        return;
+    }
+
+    if (!hasValidClimateForCloud(state)) {
         return;
     }
 
