@@ -17,6 +17,10 @@ struct AppState {
     float temperatureC = 0.0f;
     float humidityPct = 0.0f;
     bool climateValid = false;
+    bool bmpConnected = false;
+    float bmpTemperatureC = 0.0f;
+    float bmpPressureHpa = 0.0f;
+    bool bmpValid = false;
     String sensorError;
 
     String cloudStatus;

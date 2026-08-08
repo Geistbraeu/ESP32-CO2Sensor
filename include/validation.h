@@ -22,6 +22,10 @@ inline bool isValidSensorAltitude(unsigned long val) {
     return val >= appconfig::kSensorAltitudeMinMeters && val <= appconfig::kSensorAltitudeMaxMeters;
 }
 
+inline bool isValidDisplaySwitchInterval(unsigned long val) {
+    return val >= appconfig::kDisplaySwitchIntervalMinMs && val <= appconfig::kDisplaySwitchIntervalMaxMs;
+}
+
 inline bool isValidCloudSendIntervalSeconds(unsigned long val) {
     return val >= 15UL;
 }

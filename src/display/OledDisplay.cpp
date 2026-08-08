@@ -12,6 +12,9 @@ namespace {
 Adafruit_SSD1306 display(appconfig::kOledWidth, appconfig::kOledHeight, &Wire, -1);
 bool displayReady = false;
 unsigned long lastDrawMs = 0;
+unsigned long lastMainValueSwitchMs = 0;
+bool showCo2Value = true;
+constexpr float kMmHgPerHpa = 0.75006156f;
 
 enum class WifiIconState {
     Connected,
@@ -73,6 +76,39 @@ void drawPpmReading(int y, const String &valueText) {
     display.getTextBounds(valueText, 0, y, &valueX1, &valueY1, &valueW, &valueH);
 
     String unitText = "ppm";
+    int16_t unitX1 = 0;
+    int16_t unitY1 = 0;
+    uint16_t unitW = 0;
+    uint16_t unitH = 0;
+    display.setTextSize(unitTextSize);
+    display.getTextBounds(unitText, 0, y, &unitX1, &unitY1, &unitW, &unitH);
+
+    int16_t totalWidth = static_cast<int16_t>(valueW + unitGap + unitW);
+    int16_t startX = static_cast<int16_t>((appconfig::kOledWidth - totalWidth) / 2);
+    int16_t unitY = y + static_cast<int16_t>((valueTextSize - unitTextSize) * 4);
+
+    display.setTextSize(valueTextSize);
+    display.setCursor(startX, y);
+    display.print(valueText);
+
+    display.setTextSize(unitTextSize);
+    display.setCursor(startX + static_cast<int16_t>(valueW) + unitGap, unitY);
+    display.print(unitText);
+}
+
+void drawPressureReading(int y, const String &valueText) {
+    constexpr uint8_t valueTextSize = 3;
+    constexpr uint8_t unitTextSize = 1;
+    constexpr int16_t unitGap = 4;
+
+    int16_t valueX1 = 0;
+    int16_t valueY1 = 0;
+    uint16_t valueW = 0;
+    uint16_t valueH = 0;
+    display.setTextSize(valueTextSize);
+    display.getTextBounds(valueText, 0, y, &valueX1, &valueY1, &valueW, &valueH);
+
+    String unitText = "mmHg";
     int16_t unitX1 = 0;
     int16_t unitY1 = 0;
     uint16_t unitW = 0;
@@ -166,10 +202,24 @@ void loop() {
     if (now - lastDrawMs < appconfig::kDisplayRefreshIntervalMs) {
         return;
     }
-    lastDrawMs = now;
 
     SettingsSnapshot config = getSettingsSnapshot();
     RuntimeSnapshot state = getRuntimeSnapshot();
+
+    unsigned long displaySwitchIntervalMs = config.displaySwitchIntervalMs;
+    if (displaySwitchIntervalMs < appconfig::kDisplaySwitchIntervalMinMs) {
+        displaySwitchIntervalMs = appconfig::kDisplaySwitchIntervalMinMs;
+    }
+    if (displaySwitchIntervalMs > appconfig::kDisplaySwitchIntervalMaxMs) {
+        displaySwitchIntervalMs = appconfig::kDisplaySwitchIntervalMaxMs;
+    }
+
+    if (now - lastMainValueSwitchMs >= displaySwitchIntervalMs) {
+        showCo2Value = !showCo2Value;
+        lastMainValueSwitchMs = now;
+    }
+
+    lastDrawMs = now;
 
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
@@ -217,8 +267,15 @@ void loop() {
 
     display.drawLine(0, 15, appconfig::kOledWidth - 1, 15, SSD1306_WHITE);
 
-    String ppmValue = state.lastValidPpm > 0 ? String(state.co2Ppm) : String("---");
-    drawPpmReading(22, ppmValue);
+    if (showCo2Value) {
+        drawLeftAlignedText(18, "CO2", 1, 2);
+        String ppmValue = state.lastValidPpm > 0 ? String(state.co2Ppm) : String("---");
+        drawPpmReading(22, ppmValue);
+    } else {
+        drawLeftAlignedText(18, "BMP", 1, 2);
+        String pressureValue = state.bmpValid ? String(state.bmpPressureHpa * kMmHgPerHpa, 0) : String("---");
+        drawPressureReading(22, pressureValue);
+    }
 
     constexpr int16_t kBottomY = 56;
     constexpr int16_t kBottomLeftMargin = 2;

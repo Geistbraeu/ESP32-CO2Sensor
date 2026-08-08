@@ -132,6 +132,10 @@ String statusJson() {
     json += "\"temperatureC\":" + String(state.temperatureC, 1) + ",";
     json += "\"humidityPct\":" + String(state.humidityPct, 1) + ",";
     json += "\"climateValid\":" + String(state.climateValid ? "true" : "false") + ",";
+    json += "\"bmpConnected\":" + String(state.bmpConnected ? "true" : "false") + ",";
+    json += "\"bmpTemperatureC\":" + String(state.bmpTemperatureC, 1) + ",";
+    json += "\"bmpPressureHpa\":" + String(state.bmpPressureHpa, 1) + ",";
+    json += "\"bmpValid\":" + String(state.bmpValid ? "true" : "false") + ",";
     json += "\"sensorConnected\":" + String(state.sensorConnected ? "true" : "false") + ",";
     json += "\"sensorError\":\"" + jsonEscape(state.sensorError) + "\",";
     json += "\"cloudStatus\":\"" + jsonEscape(state.cloudStatus) + "\",";
@@ -139,6 +143,7 @@ String statusJson() {
     json += "\"webMessage\":\"" + jsonEscape(state.webMessage) + "\"";
     json += ",\"sensorReadIntervalMs\":" + String(config.sensorReadIntervalMs);
     json += ",\"sensorAltitudeMeters\":" + String(config.sensorAltitudeMeters);
+    json += ",\"displaySwitchIntervalMs\":" + String(config.displaySwitchIntervalMs);
     json += ",\"thingSpeakIntervalSeconds\":" + String(config.thingSpeakIntervalSeconds);
     json += ",\"thingSpeakLastSyncMs\":" + String(cloudmanager::lastThingSpeakSyncMs());
     json += ",\"customHttpIntervalSeconds\":" + String(config.customHttpIntervalSeconds);
@@ -236,6 +241,22 @@ SaveResult processSaveRequest() {
             addValidationIssue(result, "sensorAltitudeMeters", "Sensor altitude must be between " +
                                                      String(appconfig::kSensorAltitudeMinMeters) + " and " +
                                                      String(appconfig::kSensorAltitudeMaxMeters) + " meters");
+        }
+    }
+
+    if (server.hasArg("displaySwitchIntervalMs")) {
+        unsigned long parsedDisplaySwitchInterval = 0;
+        if (!Validation::parseUnsignedLongStrict(server.arg("displaySwitchIntervalMs"), parsedDisplaySwitchInterval)) {
+            addValidationIssue(result, "displaySwitchIntervalMs", "Display switch interval must be a positive integer");
+        } else if (Validation::isValidDisplaySwitchInterval(parsedDisplaySwitchInterval)) {
+            updated.displaySwitchIntervalMs = parsedDisplaySwitchInterval;
+        } else {
+            addValidationIssue(
+                result,
+                "displaySwitchIntervalMs",
+                "Display switch interval must be between " +
+                    String(appconfig::kDisplaySwitchIntervalMinMs) + " and " +
+                    String(appconfig::kDisplaySwitchIntervalMaxMs) + " ms");
         }
     }
 

@@ -7,10 +7,12 @@
 #include "app_config.h"
 #include "app_i2c_lock.h"
 #include "app_state.h"
+#include "sensors/Bmp280Sensor.h"
 #include "settings/Settings.h"
 
 namespace {
 SensirionI2cScd4x scd4x;
+Bmp280Sensor bmp280Sensor;
 SemaphoreHandle_t sensorMutex = nullptr;
 bool sensorReady = false;
 bool wireInitialized = false;
@@ -18,8 +20,23 @@ unsigned long loopCounter = 0;
 unsigned long nextInitAttemptMs = 0;
 uint16_t appliedAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
 bool altitudeApplied = false;
+unsigned long lastPressureCompensationMs = 0;
 constexpr unsigned long kInitRetryMs = 2000;
 constexpr unsigned long kStartupDelayMs = 5000;
+constexpr unsigned long kPressureCompensationIntervalMs = 5UL * 60UL * 1000UL;
+constexpr uint32_t kMinAmbientPressurePa = 70000UL;
+constexpr uint32_t kMaxAmbientPressurePa = 120000UL;
+
+bool ensureWireInitialized() {
+    if (wireInitialized) {
+        return true;
+    }
+
+    Wire.begin(appconfig::kI2CSdaPin, appconfig::kI2CSclPin);
+    Wire.setClock(100000);
+    wireInitialized = true;
+    return true;
+}
 
 String decodeSensirionError(int16_t errorCode) {
     char message[96] = {0};
@@ -41,11 +58,7 @@ bool tryInitSensor(const char* reason) {
         return false;
     }
 
-    if (!wireInitialized) {
-        Wire.begin(appconfig::kI2CSdaPin, appconfig::kI2CSclPin);
-        Wire.setClock(100000);
-        wireInitialized = true;
-    }
+    ensureWireInitialized();
 
     int probe62 = probeI2cAddress(SCD40_I2C_ADDR_62);
     int probe3c = probeI2cAddress(appconfig::kOledI2cAddress);
@@ -143,6 +156,33 @@ bool applyRuntimeAltitude(uint16_t altitudeMeters) {
     return false;
 }
 
+bool applyRuntimePressureCompensation(uint32_t pressurePa) {
+    if (sensorMutex != nullptr && xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
+        Serial.println("[SCD40] pressure: sensor mutex timeout");
+        return false;
+    }
+
+    if (!applocks::lockI2c(pdMS_TO_TICKS(1000))) {
+        Serial.println("[SCD40] pressure: I2C lock timeout");
+        if (sensorMutex != nullptr) {
+            xSemaphoreGive(sensorMutex);
+        }
+        return false;
+    }
+
+    int16_t pressureError = scd4x.setAmbientPressure(pressurePa);
+
+    applocks::unlockI2c();
+    if (sensorMutex != nullptr) {
+        xSemaphoreGive(sensorMutex);
+    }
+
+    Serial.println("[SCD40] pressure: setAmbientPressure=" + String(pressurePa) +
+                   " status=" + String(pressureError));
+
+    return pressureError == 0;
+}
+
 void logLoopStatus(const char* phase, int16_t statusError, bool dataReady, bool readOk,
                    uint16_t ppm, float temperature, float humidity, bool ppmValid) {
     String msg = "[SCD40] loop#" + String(loopCounter) +
@@ -163,10 +203,12 @@ void begin() {
     unsigned long nowMs = millis();
     nextInitAttemptMs = nowMs + kStartupDelayMs;
     Serial.println("[SCD40] startup delay before first init: " + String(kStartupDelayMs) + " ms");
+    bmp280Sensor.begin(kStartupDelayMs);
 
     bool started = false;
     altitudeApplied = false;
     appliedAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
+    lastPressureCompensationMs = 0;
 
     if (sensorMutex == nullptr) {
         sensorMutex = xSemaphoreCreateMutex();
@@ -181,19 +223,52 @@ void begin() {
 
 void loop() {
     ++loopCounter;
+    unsigned long nowMs = millis();
+    bmp280Sensor.loop();
+
+    bool bmpValid = false;
+    float bmpPressureHpa = 0.0f;
+    if (lockAppState()) {
+        bmpValid = gAppState.bmpValid;
+        bmpPressureHpa = gAppState.bmpPressureHpa;
+        unlockAppState();
+    }
+
+    uint32_t bmpPressurePa = 0;
+    if (bmpValid) {
+        bmpPressurePa = static_cast<uint32_t>(bmpPressureHpa * 100.0f + 0.5f);
+        if (bmpPressurePa < kMinAmbientPressurePa) {
+            bmpPressurePa = kMinAmbientPressurePa;
+        } else if (bmpPressurePa > kMaxAmbientPressurePa) {
+            bmpPressurePa = kMaxAmbientPressurePa;
+        }
+    }
 
     SettingsData settingsSnapshot = settings::get();
-    if (sensorReady && (!altitudeApplied || settingsSnapshot.sensorAltitudeMeters != appliedAltitudeMeters)) {
-        if (!applyRuntimeAltitude(settingsSnapshot.sensorAltitudeMeters)) {
-            if (lockAppState()) {
-                gAppState.sensorError = "SCD40 altitude compensation update failed";
-                unlockAppState();
+    if (sensorReady) {
+        if (bmpValid) {
+            bool shouldApplyPressure = (lastPressureCompensationMs == 0) ||
+                                       (nowMs - lastPressureCompensationMs >= kPressureCompensationIntervalMs);
+            if (shouldApplyPressure) {
+                if (applyRuntimePressureCompensation(bmpPressurePa)) {
+                    lastPressureCompensationMs = nowMs;
+                    Serial.println("[SCD40] pressure compensation applied from BMP");
+                } else if (lockAppState()) {
+                    gAppState.sensorError = "SCD40 pressure compensation update failed";
+                    unlockAppState();
+                }
+            }
+        } else if (!altitudeApplied || settingsSnapshot.sensorAltitudeMeters != appliedAltitudeMeters) {
+            if (!applyRuntimeAltitude(settingsSnapshot.sensorAltitudeMeters)) {
+                if (lockAppState()) {
+                    gAppState.sensorError = "SCD40 altitude compensation update failed";
+                    unlockAppState();
+                }
             }
         }
     }
 
     if (!sensorReady) {
-        unsigned long nowMs = millis();
         if (static_cast<long>(nextInitAttemptMs - nowMs) > 0) {
             unsigned long waitMs = nextInitAttemptMs - nowMs;
             Serial.println("[SCD40] loop#" + String(loopCounter) + " phase=startup-wait ms=" + String(waitMs));

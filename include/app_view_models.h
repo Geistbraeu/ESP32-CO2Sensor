@@ -16,6 +16,10 @@ struct RuntimeSnapshot {
     float temperatureC = 0.0f;
     float humidityPct = 0.0f;
     bool climateValid = false;
+    bool bmpConnected = false;
+    float bmpTemperatureC = 0.0f;
+    float bmpPressureHpa = 0.0f;
+    bool bmpValid = false;
     String sensorError;
     String cloudStatus;
     String cloudError;
@@ -28,6 +32,7 @@ struct SettingsSnapshot {
     String wifiPassword;
     uint32_t sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
     uint16_t sensorAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
+    uint32_t displaySwitchIntervalMs = appconfig::kDisplaySwitchIntervalMs;
     bool thingSpeakEnabled = false;
     String thingSpeakApiKey;
     uint32_t thingSpeakIntervalSeconds = appconfig::kThingSpeakIntervalMs / 1000UL;
@@ -52,6 +57,10 @@ inline RuntimeSnapshot getRuntimeSnapshot(TickType_t timeoutTicks = pdMS_TO_TICK
     snapshot.temperatureC = state.temperatureC;
     snapshot.humidityPct = state.humidityPct;
     snapshot.climateValid = state.climateValid;
+    snapshot.bmpConnected = state.bmpConnected;
+    snapshot.bmpTemperatureC = state.bmpTemperatureC;
+    snapshot.bmpPressureHpa = state.bmpPressureHpa;
+    snapshot.bmpValid = state.bmpValid;
     snapshot.sensorError = state.sensorError;
     snapshot.cloudStatus = state.cloudStatus;
     snapshot.cloudError = state.cloudError;
@@ -67,6 +76,7 @@ inline SettingsSnapshot getSettingsSnapshot() {
     snapshot.wifiPassword = config.wifiPassword;
     snapshot.sensorReadIntervalMs = config.sensorReadIntervalMs;
     snapshot.sensorAltitudeMeters = config.sensorAltitudeMeters;
+    snapshot.displaySwitchIntervalMs = config.displaySwitchIntervalMs;
     snapshot.thingSpeakEnabled = config.thingSpeakEnabled;
     snapshot.thingSpeakApiKey = config.thingSpeakApiKey;
     snapshot.thingSpeakIntervalSeconds = config.thingSpeakIntervalSeconds;

@@ -41,6 +41,11 @@ String formatTemperature(float value) {
 String formatHumidity(float value) {
     return String(value, 1) + " %";
 }
+
+String formatPressure(float value) {
+    constexpr float kMmHgPerHpa = 0.75006156f;
+    return String(value * kMmHgPerHpa, 1) + " mmHg";
+}
 }  // namespace
 
 namespace webpage {String render() {
@@ -65,6 +70,9 @@ namespace webpage {String render() {
         html += "<div class=card><div class=card-label>Humidity</div><div class='card-value ok";
         html += state.climateValid ? "" : " warn";
         html += "' id=hum-value>" + String(state.climateValid ? formatHumidity(state.humidityPct) : String("-")) + "</div></div>";
+        html += "<div class=card><div class=card-label>Pressure (mmHg)</div><div class='card-value accent";
+        html += state.bmpValid ? "" : " warn";
+        html += "' id=bmp-pressure-value>" + String(state.bmpValid ? formatPressure(state.bmpPressureHpa) : String("-")) + "</div></div>";
         html += "</div>";
 
         String sensorStatus = "Sensor ready";
@@ -91,6 +99,7 @@ namespace webpage {String render() {
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Device name</label><div class=setting-row><input name=deviceName value='" + escapeHtml(config.deviceName) + "'><button class=btn-set type=submit>Set</button></div></div></form>";
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Sensor read interval, ms</label><div class=setting-row><input type=number min=5000 name=sensorReadIntervalMs value='" + String(config.sensorReadIntervalMs) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Controls how often the sensor task polls the CO2 sensor (minimum 5000 ms).</p></div></form>";
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Sensor altitude, m</label><div class=setting-row><input type=number min=0 max=3000 name=sensorAltitudeMeters value='" + String(config.sensorAltitudeMeters) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Used for atmospheric pressure compensation in SCD40 (0-3000 m).</p></div></form>";
+        html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Display switch interval, ms</label><div class=setting-row><input type=number min=1000 max=60000 name=displaySwitchIntervalMs value='" + String(config.displaySwitchIntervalMs) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Controls how often OLED toggles between CO2 and pressure (1000-60000 ms).</p></div></form>";
         html += "</div></div>";
 
         html += "<div class=tab-panel id=tab-wifi><form action=/save method=post><div class=stack><div class=setting-group><label class=setting-label>Wi-Fi SSID</label><input name=wifiSsid value='" + escapeHtml(wifiSsidValue) + "'></div><div class=setting-group><label class=setting-label>Wi-Fi password</label><input type=password name=wifiPassword value='" + escapeHtml(config.wifiPassword) + "'></div><div class=footer-actions><button class=btn-set type=submit>Save Wi-Fi</button></div><p class=hint>Use the access point if the device is offline. AP is named after the device.</p></div></form></div>";
@@ -264,6 +273,7 @@ async function refreshLiveData() {
         const co2Value = document.getElementById('co2-value');
         const tempValue = document.getElementById('temp-value');
         const humValue = document.getElementById('hum-value');
+        const bmpPressureValue = document.getElementById('bmp-pressure-value');
         const wifiValue = document.getElementById('wifi-value');
         const ipValue = document.getElementById('ip-value');
         const cloudValue = document.getElementById('cloud-value');
@@ -293,6 +303,11 @@ async function refreshLiveData() {
         if (humValue) {
             humValue.textContent = data.climateValid ? ((data.humidityPct || 0).toFixed(1) + ' %') : '-';
             humValue.className = 'card-value ok' + (data.climateValid ? '' : ' warn');
+        }
+        if (bmpPressureValue) {
+            const mmHgPerHpa = 0.75006156;
+            bmpPressureValue.textContent = data.bmpValid ? (((data.bmpPressureHpa || 0) * mmHgPerHpa).toFixed(1) + ' mmHg') : '-';
+            bmpPressureValue.className = 'card-value accent' + (data.bmpValid ? '' : ' warn');
         }
         if (wifiValue) wifiValue.textContent = data.wifiConnected ? 'Connected' : (data.setupMode ? 'Setup AP' : 'Offline');
         if (ipValue) ipValue.textContent = data.ipAddress || data.apAddress || '-';
