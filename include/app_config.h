@@ -31,6 +31,11 @@ constexpr unsigned long kDisplayRefreshIntervalMs = 1000;
 constexpr unsigned long kDisplaySwitchIntervalMs = 3000;
 constexpr unsigned long kDisplaySwitchIntervalMinMs = 1000;
 constexpr unsigned long kDisplaySwitchIntervalMaxMs = 60000;
+constexpr uint8_t kBuzzerPin = 4;
+constexpr uint16_t kBuzzerFrequencyHzDefault = 2000;
+constexpr uint32_t kBuzzerToneDurationMsDefault = 200;
+constexpr uint32_t kBuzzerPauseDurationMsDefault = 300;
+constexpr unsigned long kBuzzerTestDurationMs = 10000;
 constexpr unsigned long kThingSpeakIntervalMs = 30000;
 constexpr unsigned long kCustomHttpIntervalMs = 30000;
 

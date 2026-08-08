@@ -11,6 +11,9 @@ struct SettingsData {
     uint32_t sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
     uint16_t sensorAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
     uint32_t displaySwitchIntervalMs = appconfig::kDisplaySwitchIntervalMs;
+    uint32_t buzzerFrequencyHz = appconfig::kBuzzerFrequencyHzDefault;
+    uint32_t buzzerToneDurationMs = appconfig::kBuzzerToneDurationMsDefault;
+    uint32_t buzzerPauseDurationMs = appconfig::kBuzzerPauseDurationMsDefault;
 
     bool thingSpeakEnabled = false;
     String thingSpeakApiKey;

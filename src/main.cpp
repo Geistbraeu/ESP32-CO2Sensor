@@ -59,6 +59,9 @@ void setup() {
 
   applocks::initI2cMutex();
 
+  pinMode(appconfig::kBuzzerPin, OUTPUT);
+  noTone(appconfig::kBuzzerPin);
+
   settings::begin();
   wifiportal::begin();
   webui::begin(wifiportal::isSetupMode());

@@ -33,6 +33,9 @@ struct SettingsSnapshot {
     uint32_t sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
     uint16_t sensorAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
     uint32_t displaySwitchIntervalMs = appconfig::kDisplaySwitchIntervalMs;
+    uint32_t buzzerFrequencyHz = appconfig::kBuzzerFrequencyHzDefault;
+    uint32_t buzzerToneDurationMs = appconfig::kBuzzerToneDurationMsDefault;
+    uint32_t buzzerPauseDurationMs = appconfig::kBuzzerPauseDurationMsDefault;
     bool thingSpeakEnabled = false;
     String thingSpeakApiKey;
     uint32_t thingSpeakIntervalSeconds = appconfig::kThingSpeakIntervalMs / 1000UL;
@@ -77,6 +80,9 @@ inline SettingsSnapshot getSettingsSnapshot() {
     snapshot.sensorReadIntervalMs = config.sensorReadIntervalMs;
     snapshot.sensorAltitudeMeters = config.sensorAltitudeMeters;
     snapshot.displaySwitchIntervalMs = config.displaySwitchIntervalMs;
+    snapshot.buzzerFrequencyHz = config.buzzerFrequencyHz;
+    snapshot.buzzerToneDurationMs = config.buzzerToneDurationMs;
+    snapshot.buzzerPauseDurationMs = config.buzzerPauseDurationMs;
     snapshot.thingSpeakEnabled = config.thingSpeakEnabled;
     snapshot.thingSpeakApiKey = config.thingSpeakApiKey;
     snapshot.thingSpeakIntervalSeconds = config.thingSpeakIntervalSeconds;

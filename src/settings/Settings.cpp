@@ -16,6 +16,9 @@ constexpr const char *kKeyWifiPassword = "wifiPass";
 constexpr const char *kKeySensorReadInterval = "sensorReadMs";
 constexpr const char *kKeySensorAltitude = "sensorAlt";
 constexpr const char *kKeyDisplaySwitchInterval = "displaySwMs";
+constexpr const char *kKeyBuzzerFrequency = "buzzerFreq";
+constexpr const char *kKeyBuzzerToneDuration = "buzzerToneMs";
+constexpr const char *kKeyBuzzerPauseDuration = "buzzerPauseMs";
 constexpr const char *kKeyThingSpeakEnabled = "tsEnable";
 constexpr const char *kKeyThingSpeakApiKey = "tsKey";
 constexpr const char *kKeyThingSpeakInterval = "tsInterval";
@@ -57,6 +60,26 @@ unsigned long normalizeDisplaySwitchInterval(unsigned long value) {
     return value;
 }
 
+unsigned long normalizeBuzzerFrequency(unsigned long value) {
+    if (value < 100UL) {
+        return 100UL;
+    }
+    if (value > 5000UL) {
+        return 5000UL;
+    }
+    return value;
+}
+
+unsigned long normalizeBuzzerDuration(unsigned long value) {
+    if (value < 50UL) {
+        return 50UL;
+    }
+    if (value > 5000UL) {
+        return 5000UL;
+    }
+    return value;
+}
+
 unsigned long normalizeThingSpeakIntervalSeconds(unsigned long value) {
     if (value < 15UL) {
         return 15UL;
@@ -94,6 +117,9 @@ void normalizeSettings(SettingsData &value) {
     value.sensorReadIntervalMs = normalizeSensorReadInterval(value.sensorReadIntervalMs);
     value.sensorAltitudeMeters = normalizeSensorAltitude(value.sensorAltitudeMeters);
     value.displaySwitchIntervalMs = normalizeDisplaySwitchInterval(value.displaySwitchIntervalMs);
+    value.buzzerFrequencyHz = normalizeBuzzerFrequency(value.buzzerFrequencyHz);
+    value.buzzerToneDurationMs = normalizeBuzzerDuration(value.buzzerToneDurationMs);
+    value.buzzerPauseDurationMs = normalizeBuzzerDuration(value.buzzerPauseDurationMs);
     value.thingSpeakIntervalSeconds = normalizeThingSpeakIntervalSeconds(value.thingSpeakIntervalSeconds);
     value.customHttpIntervalSeconds = normalizeCustomHttpIntervalSeconds(value.customHttpIntervalSeconds);
     value.customHttpMethod = normalizeCustomHttpMethod(value.customHttpMethod);
@@ -155,6 +181,9 @@ bool load() {
     currentSettings.sensorReadIntervalMs = preferences.getULong(kKeySensorReadInterval, appconfig::kSensorReadIntervalMs);
     currentSettings.sensorAltitudeMeters = static_cast<uint16_t>(preferences.getULong(kKeySensorAltitude, appconfig::kSensorAltitudeDefaultMeters));
     currentSettings.displaySwitchIntervalMs = preferences.getULong(kKeyDisplaySwitchInterval, appconfig::kDisplaySwitchIntervalMs);
+    currentSettings.buzzerFrequencyHz = preferences.getULong(kKeyBuzzerFrequency, appconfig::kBuzzerFrequencyHzDefault);
+    currentSettings.buzzerToneDurationMs = preferences.getULong(kKeyBuzzerToneDuration, appconfig::kBuzzerToneDurationMsDefault);
+    currentSettings.buzzerPauseDurationMs = preferences.getULong(kKeyBuzzerPauseDuration, appconfig::kBuzzerPauseDurationMsDefault);
     currentSettings.thingSpeakEnabled = preferences.getBool(kKeyThingSpeakEnabled, false);
     currentSettings.thingSpeakApiKey = readString(kKeyThingSpeakApiKey, "");
     currentSettings.thingSpeakIntervalSeconds = preferences.getULong(kKeyThingSpeakInterval, appconfig::kThingSpeakIntervalMs / 1000UL);
@@ -198,6 +227,9 @@ bool save() {
     preferences.putULong(kKeySensorReadInterval, snapshot.sensorReadIntervalMs);
     preferences.putULong(kKeySensorAltitude, snapshot.sensorAltitudeMeters);
     preferences.putULong(kKeyDisplaySwitchInterval, snapshot.displaySwitchIntervalMs);
+    preferences.putULong(kKeyBuzzerFrequency, snapshot.buzzerFrequencyHz);
+    preferences.putULong(kKeyBuzzerToneDuration, snapshot.buzzerToneDurationMs);
+    preferences.putULong(kKeyBuzzerPauseDuration, snapshot.buzzerPauseDurationMs);
     preferences.putBool(kKeyThingSpeakEnabled, snapshot.thingSpeakEnabled);
     preferences.putString(kKeyThingSpeakApiKey, snapshot.thingSpeakApiKey);
     preferences.putULong(kKeyThingSpeakInterval, snapshot.thingSpeakIntervalSeconds);

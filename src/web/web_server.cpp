@@ -23,6 +23,54 @@ bool restartRequested = false;
 bool networkReinitRequested = false;
 bool mdnsReinitRequested = false;
 unsigned long webMessageExpireAtMs = 0;
+bool buzzerTestActive = false;
+bool buzzerToneActive = false;
+unsigned long buzzerTestStartedAtMs = 0;
+unsigned long buzzerTransitionAtMs = 0;
+
+void stopBuzzerTest() {
+    buzzerTestActive = false;
+    buzzerToneActive = false;
+    buzzerTestStartedAtMs = 0;
+    buzzerTransitionAtMs = 0;
+    noTone(appconfig::kBuzzerPin);
+}
+
+void updateBuzzerTestState() {
+    if (!buzzerTestActive) {
+        return;
+    }
+
+    SettingsData config = settings::get();
+    const unsigned long nowMs = millis();
+    if (buzzerTestStartedAtMs == 0) {
+        buzzerTestStartedAtMs = nowMs;
+    }
+
+    if (nowMs - buzzerTestStartedAtMs >= appconfig::kBuzzerTestDurationMs) {
+        stopBuzzerTest();
+        return;
+    }
+
+    if (buzzerTransitionAtMs == 0) {
+        buzzerToneActive = true;
+        buzzerTransitionAtMs = nowMs;
+        tone(appconfig::kBuzzerPin, static_cast<unsigned int>(config.buzzerFrequencyHz));
+        return;
+    }
+
+    if (buzzerToneActive) {
+        if (nowMs - buzzerTransitionAtMs >= config.buzzerToneDurationMs) {
+            noTone(appconfig::kBuzzerPin);
+            buzzerToneActive = false;
+            buzzerTransitionAtMs = nowMs;
+        }
+    } else if (nowMs - buzzerTransitionAtMs >= config.buzzerPauseDurationMs) {
+        tone(appconfig::kBuzzerPin, static_cast<unsigned int>(config.buzzerFrequencyHz));
+        buzzerToneActive = true;
+        buzzerTransitionAtMs = nowMs;
+    }
+}
 
 struct SaveResult {
     bool saved = false;
@@ -260,6 +308,42 @@ SaveResult processSaveRequest() {
         }
     }
 
+    const bool buzzerForm = server.hasArg("buzzerFrequencyHz") || server.hasArg("buzzerToneDurationMs") || server.hasArg("buzzerPauseDurationMs");
+    if (buzzerForm) {
+        if (server.hasArg("buzzerFrequencyHz")) {
+            unsigned long parsedFrequency = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("buzzerFrequencyHz"), parsedFrequency)) {
+                addValidationIssue(result, "buzzerFrequencyHz", "Buzzer frequency must be a positive integer");
+            } else if (Validation::isValidBuzzerFrequencyHz(parsedFrequency)) {
+                updated.buzzerFrequencyHz = parsedFrequency;
+            } else {
+                addValidationIssue(result, "buzzerFrequencyHz", "Buzzer frequency must be between 100 and 5000 Hz");
+            }
+        }
+
+        if (server.hasArg("buzzerToneDurationMs")) {
+            unsigned long parsedToneDuration = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("buzzerToneDurationMs"), parsedToneDuration)) {
+                addValidationIssue(result, "buzzerToneDurationMs", "Buzzer tone duration must be a positive integer");
+            } else if (Validation::isValidBuzzerDurationMs(parsedToneDuration)) {
+                updated.buzzerToneDurationMs = parsedToneDuration;
+            } else {
+                addValidationIssue(result, "buzzerToneDurationMs", "Buzzer tone duration must be between 50 and 5000 ms");
+            }
+        }
+
+        if (server.hasArg("buzzerPauseDurationMs")) {
+            unsigned long parsedPauseDuration = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("buzzerPauseDurationMs"), parsedPauseDuration)) {
+                addValidationIssue(result, "buzzerPauseDurationMs", "Buzzer pause duration must be a positive integer");
+            } else if (Validation::isValidBuzzerDurationMs(parsedPauseDuration)) {
+                updated.buzzerPauseDurationMs = parsedPauseDuration;
+            } else {
+                addValidationIssue(result, "buzzerPauseDurationMs", "Buzzer pause duration must be between 50 and 5000 ms");
+            }
+        }
+    }
+
     const bool thingSpeakForm = server.hasArg("thingSpeakApiKey") || server.hasArg("thingSpeakIntervalSeconds") || server.hasArg("thingSpeakEnabled");
     if (thingSpeakForm) {
         bool enabled = updated.thingSpeakEnabled;
@@ -376,6 +460,31 @@ void handleCalibrate() {
     server.send(303, "text/plain", "Calibrate");
 }
 
+void handleBuzzerTest() {
+    SettingsData config = settings::get();
+    if (config.buzzerFrequencyHz == 0) {
+        setWebMessage("Buzzer settings are invalid. Please save valid values first.", 8000);
+    } else {
+        buzzerTestActive = true;
+        buzzerToneActive = true;
+        buzzerTestStartedAtMs = millis();
+        buzzerTransitionAtMs = buzzerTestStartedAtMs;
+        tone(appconfig::kBuzzerPin, static_cast<unsigned int>(config.buzzerFrequencyHz));
+        setWebMessage("Buzzer test started.", 5000);
+    }
+
+    server.sendHeader("Location", "/");
+    server.send(303, "text/plain", "Buzzer test");
+}
+
+void handleBuzzerStop() {
+    stopBuzzerTest();
+    setWebMessage("Buzzer test stopped.", 5000);
+
+    server.sendHeader("Location", "/");
+    server.send(303, "text/plain", "Buzzer stop");
+}
+
 void handleApiPost() {
     SaveResult result = processSaveRequest();
     String json = "{";
@@ -428,6 +537,8 @@ void begin(bool captivePortalEnabled) {
     server.on("/ncsi.txt", HTTP_GET, handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.on("/calibrate", HTTP_POST, handleCalibrate);
+    server.on("/buzzer-test", HTTP_POST, handleBuzzerTest);
+    server.on("/buzzer-stop", HTTP_POST, handleBuzzerStop);
     server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
     server.onNotFound(handleNotFound);
     server.begin();
@@ -438,6 +549,7 @@ void begin(bool captivePortalEnabled) {
 }
 
 void loop() {
+    updateBuzzerTestState();
     server.handleClient();
 
     if (networkReinitRequested) {

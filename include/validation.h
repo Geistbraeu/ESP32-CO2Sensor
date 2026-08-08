@@ -26,6 +26,14 @@ inline bool isValidDisplaySwitchInterval(unsigned long val) {
     return val >= appconfig::kDisplaySwitchIntervalMinMs && val <= appconfig::kDisplaySwitchIntervalMaxMs;
 }
 
+inline bool isValidBuzzerFrequencyHz(unsigned long val) {
+    return val >= 100UL && val <= 5000UL;
+}
+
+inline bool isValidBuzzerDurationMs(unsigned long val) {
+    return val >= 50UL && val <= 5000UL;
+}
+
 inline bool isValidCloudSendIntervalSeconds(unsigned long val) {
     return val >= 15UL;
 }
