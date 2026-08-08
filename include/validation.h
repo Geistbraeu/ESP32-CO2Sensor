@@ -26,6 +26,14 @@ inline bool isValidDisplaySwitchInterval(unsigned long val) {
     return val >= appconfig::kDisplaySwitchIntervalMinMs && val <= appconfig::kDisplaySwitchIntervalMaxMs;
 }
 
+inline bool isValidDndMinuteOfDay(unsigned long val) {
+    return val < appconfig::kMinutesPerDay;
+}
+
+inline bool isValidBrightnessLevel(unsigned long val) {
+    return val >= appconfig::kBrightnessLevelMin && val <= appconfig::kBrightnessLevelMax;
+}
+
 inline bool isValidBuzzerFrequencyHz(unsigned long val) {
     return val >= 100UL && val <= 5000UL;
 }

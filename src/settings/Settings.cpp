@@ -16,6 +16,13 @@ constexpr const char *kKeyWifiPassword = "wifiPass";
 constexpr const char *kKeySensorReadInterval = "sensorReadMs";
 constexpr const char *kKeySensorAltitude = "sensorAlt";
 constexpr const char *kKeyDisplaySwitchInterval = "displaySwMs";
+constexpr const char *kKeyDndEnabled = "dndEnable";
+constexpr const char *kKeyDndStartMinutes = "dndStart";
+constexpr const char *kKeyDndEndMinutes = "dndEnd";
+constexpr const char *kKeyNormalBrightnessLevel = "normLvl";
+constexpr const char *kKeyDndBrightnessLevel = "dndLvl";
+constexpr const char *kLegacyKeyNormalBrightnessPercent = "normPct";
+constexpr const char *kLegacyKeyDndBrightnessPercent = "dndPct";
 constexpr const char *kKeyBuzzerFrequency = "buzzerFreq";
 constexpr const char *kKeyBuzzerToneDuration = "buzzerToneMs";
 constexpr const char *kKeyBuzzerPauseDuration = "buzzerPauseMs";
@@ -58,6 +65,27 @@ unsigned long normalizeDisplaySwitchInterval(unsigned long value) {
         return appconfig::kDisplaySwitchIntervalMaxMs;
     }
     return value;
+}
+
+uint16_t normalizeDndMinuteOfDay(unsigned long value, uint16_t fallback) {
+    if (value >= appconfig::kMinutesPerDay) {
+        return fallback;
+    }
+    return static_cast<uint16_t>(value);
+}
+
+uint8_t normalizeBrightnessLevel(unsigned long value) {
+    if (value > appconfig::kBrightnessLevelMax) {
+        return appconfig::kBrightnessLevelMax;
+    }
+    return static_cast<uint8_t>(value);
+}
+
+uint8_t percentToLegacyContrast(unsigned long percentValue) {
+    if (percentValue > 100UL) {
+        percentValue = 100UL;
+    }
+    return static_cast<uint8_t>((static_cast<uint16_t>(appconfig::kOledBaseContrast) * percentValue) / 100UL);
 }
 
 unsigned long normalizeBuzzerFrequency(unsigned long value) {
@@ -117,6 +145,10 @@ void normalizeSettings(SettingsData &value) {
     value.sensorReadIntervalMs = normalizeSensorReadInterval(value.sensorReadIntervalMs);
     value.sensorAltitudeMeters = normalizeSensorAltitude(value.sensorAltitudeMeters);
     value.displaySwitchIntervalMs = normalizeDisplaySwitchInterval(value.displaySwitchIntervalMs);
+    value.dndStartMinutes = normalizeDndMinuteOfDay(value.dndStartMinutes, appconfig::kDndStartMinutesDefault);
+    value.dndEndMinutes = normalizeDndMinuteOfDay(value.dndEndMinutes, appconfig::kDndEndMinutesDefault);
+    value.normalBrightnessLevel = normalizeBrightnessLevel(value.normalBrightnessLevel);
+    value.dndBrightnessLevel = normalizeBrightnessLevel(value.dndBrightnessLevel);
     value.buzzerFrequencyHz = normalizeBuzzerFrequency(value.buzzerFrequencyHz);
     value.buzzerToneDurationMs = normalizeBuzzerDuration(value.buzzerToneDurationMs);
     value.buzzerPauseDurationMs = normalizeBuzzerDuration(value.buzzerPauseDurationMs);
@@ -181,6 +213,24 @@ bool load() {
     currentSettings.sensorReadIntervalMs = preferences.getULong(kKeySensorReadInterval, appconfig::kSensorReadIntervalMs);
     currentSettings.sensorAltitudeMeters = static_cast<uint16_t>(preferences.getULong(kKeySensorAltitude, appconfig::kSensorAltitudeDefaultMeters));
     currentSettings.displaySwitchIntervalMs = preferences.getULong(kKeyDisplaySwitchInterval, appconfig::kDisplaySwitchIntervalMs);
+    currentSettings.dndEnabled = preferences.getBool(kKeyDndEnabled, false);
+    currentSettings.dndStartMinutes = static_cast<uint16_t>(preferences.getULong(kKeyDndStartMinutes, appconfig::kDndStartMinutesDefault));
+    currentSettings.dndEndMinutes = static_cast<uint16_t>(preferences.getULong(kKeyDndEndMinutes, appconfig::kDndEndMinutesDefault));
+    if (preferences.isKey(kKeyNormalBrightnessLevel)) {
+        currentSettings.normalBrightnessLevel = static_cast<uint8_t>(preferences.getUChar(kKeyNormalBrightnessLevel, appconfig::kNormalBrightnessLevelDefault));
+    } else if (preferences.isKey(kLegacyKeyNormalBrightnessPercent)) {
+        currentSettings.normalBrightnessLevel = percentToLegacyContrast(preferences.getUChar(kLegacyKeyNormalBrightnessPercent, 100));
+    } else {
+        currentSettings.normalBrightnessLevel = appconfig::kNormalBrightnessLevelDefault;
+    }
+
+    if (preferences.isKey(kKeyDndBrightnessLevel)) {
+        currentSettings.dndBrightnessLevel = static_cast<uint8_t>(preferences.getUChar(kKeyDndBrightnessLevel, appconfig::kDndBrightnessLevelDefault));
+    } else if (preferences.isKey(kLegacyKeyDndBrightnessPercent)) {
+        currentSettings.dndBrightnessLevel = percentToLegacyContrast(preferences.getUChar(kLegacyKeyDndBrightnessPercent, 25));
+    } else {
+        currentSettings.dndBrightnessLevel = appconfig::kDndBrightnessLevelDefault;
+    }
     currentSettings.buzzerFrequencyHz = preferences.getULong(kKeyBuzzerFrequency, appconfig::kBuzzerFrequencyHzDefault);
     currentSettings.buzzerToneDurationMs = preferences.getULong(kKeyBuzzerToneDuration, appconfig::kBuzzerToneDurationMsDefault);
     currentSettings.buzzerPauseDurationMs = preferences.getULong(kKeyBuzzerPauseDuration, appconfig::kBuzzerPauseDurationMsDefault);
@@ -227,6 +277,11 @@ bool save() {
     preferences.putULong(kKeySensorReadInterval, snapshot.sensorReadIntervalMs);
     preferences.putULong(kKeySensorAltitude, snapshot.sensorAltitudeMeters);
     preferences.putULong(kKeyDisplaySwitchInterval, snapshot.displaySwitchIntervalMs);
+    preferences.putBool(kKeyDndEnabled, snapshot.dndEnabled);
+    preferences.putULong(kKeyDndStartMinutes, snapshot.dndStartMinutes);
+    preferences.putULong(kKeyDndEndMinutes, snapshot.dndEndMinutes);
+    preferences.putUChar(kKeyNormalBrightnessLevel, snapshot.normalBrightnessLevel);
+    preferences.putUChar(kKeyDndBrightnessLevel, snapshot.dndBrightnessLevel);
     preferences.putULong(kKeyBuzzerFrequency, snapshot.buzzerFrequencyHz);
     preferences.putULong(kKeyBuzzerToneDuration, snapshot.buzzerToneDurationMs);
     preferences.putULong(kKeyBuzzerPauseDuration, snapshot.buzzerPauseDurationMs);

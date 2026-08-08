@@ -11,6 +11,11 @@ struct SettingsData {
     uint32_t sensorReadIntervalMs = appconfig::kSensorReadIntervalMs;
     uint16_t sensorAltitudeMeters = appconfig::kSensorAltitudeDefaultMeters;
     uint32_t displaySwitchIntervalMs = appconfig::kDisplaySwitchIntervalMs;
+    bool dndEnabled = false;
+    uint16_t dndStartMinutes = appconfig::kDndStartMinutesDefault;
+    uint16_t dndEndMinutes = appconfig::kDndEndMinutesDefault;
+    uint8_t normalBrightnessLevel = appconfig::kNormalBrightnessLevelDefault;
+    uint8_t dndBrightnessLevel = appconfig::kDndBrightnessLevelDefault;
     uint32_t buzzerFrequencyHz = appconfig::kBuzzerFrequencyHzDefault;
     uint32_t buzzerToneDurationMs = appconfig::kBuzzerToneDurationMsDefault;
     uint32_t buzzerPauseDurationMs = appconfig::kBuzzerPauseDurationMsDefault;

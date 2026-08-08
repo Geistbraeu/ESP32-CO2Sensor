@@ -1,5 +1,7 @@
 #include "display/OledDisplay.h"
 
+#include <time.h>
+
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Wire.h>
@@ -14,6 +16,7 @@ bool displayReady = false;
 unsigned long lastDrawMs = 0;
 unsigned long lastMainValueSwitchMs = 0;
 bool showCo2Value = true;
+uint8_t activeContrast = appconfig::kOledBaseContrast;
 constexpr float kMmHgPerHpa = 0.75006156f;
 
 enum class WifiIconState {
@@ -174,6 +177,60 @@ void drawWifiIcon(int x, int y, WifiIconState state) {
         display.drawPixel(centerX, y + 10, SSD1306_WHITE);
     }
 }
+
+uint8_t contrastFromLevel(uint8_t level) {
+    if (level >= appconfig::kBrightnessLevelMax) {
+        return appconfig::kBrightnessLevelMax;
+    }
+    return level;
+}
+
+bool isTimeValid() {
+    const time_t now = time(nullptr);
+    return now > 24UL * 60UL * 60UL;
+}
+
+int currentMinuteOfDay() {
+    const time_t now = time(nullptr);
+    struct tm localTimeInfo;
+    if (localtime_r(&now, &localTimeInfo) == nullptr) {
+        return -1;
+    }
+    return (localTimeInfo.tm_hour * 60) + localTimeInfo.tm_min;
+}
+
+bool isMinuteInInterval(int currentMinute, int startMinute, int endMinute) {
+    if (startMinute == endMinute) {
+        return true;
+    }
+    if (startMinute < endMinute) {
+        return currentMinute >= startMinute && currentMinute < endMinute;
+    }
+    return currentMinute >= startMinute || currentMinute < endMinute;
+}
+
+uint8_t resolveTargetContrast(const SettingsSnapshot &config) {
+    uint8_t targetLevel = config.normalBrightnessLevel;
+    if (config.dndEnabled && isTimeValid()) {
+        const int nowMinute = currentMinuteOfDay();
+        const int startMinute = static_cast<int>(config.dndStartMinutes % appconfig::kMinutesPerDay);
+        const int endMinute = static_cast<int>(config.dndEndMinutes % appconfig::kMinutesPerDay);
+        if (nowMinute >= 0 && isMinuteInInterval(nowMinute, startMinute, endMinute)) {
+            targetLevel = config.dndBrightnessLevel;
+        }
+    }
+    return contrastFromLevel(targetLevel);
+}
+
+void applyContrastIfNeeded(uint8_t targetContrast) {
+    if (targetContrast == activeContrast) {
+        return;
+    }
+
+    display.ssd1306_command(SSD1306_SETCONTRAST);
+    display.ssd1306_command(targetContrast);
+    activeContrast = targetContrast;
+}
 }  // namespace
 
 namespace displayui {
@@ -186,6 +243,9 @@ void begin() {
     Wire.begin(appconfig::kI2CSdaPin, appconfig::kI2CSclPin);
     displayReady = display.begin(SSD1306_SWITCHCAPVCC, appconfig::kOledI2cAddress);
     if (displayReady) {
+        activeContrast = appconfig::kOledBaseContrast;
+        display.ssd1306_command(SSD1306_SETCONTRAST);
+        display.ssd1306_command(activeContrast);
         display.clearDisplay();
         display.display();
     }
@@ -205,6 +265,7 @@ void loop() {
 
     SettingsSnapshot config = getSettingsSnapshot();
     RuntimeSnapshot state = getRuntimeSnapshot();
+    applyContrastIfNeeded(resolveTargetContrast(config));
 
     unsigned long displaySwitchIntervalMs = config.displaySwitchIntervalMs;
     if (displaySwitchIntervalMs < appconfig::kDisplaySwitchIntervalMinMs) {

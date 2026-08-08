@@ -1,5 +1,7 @@
 #include "wifi/ConfigPortal.h"
 
+#include <time.h>
+
 #include <WiFi.h>
 
 #include "app_config.h"
@@ -10,6 +12,7 @@ static bool setupMode = false;
 static bool offlineMode = false;
 static bool reconfigureRequested = false;
 static unsigned long apStartedMs = 0;
+static bool timeConfigured = false;
 
 constexpr unsigned long kSetupApWindowMs = 5UL * 60UL * 1000UL;
 
@@ -18,6 +21,33 @@ static String buildApName(const String &deviceName) {
     result.replace(" ", "-");
     result += "-Setup";
     return result;
+}
+
+static void configureTimeSync() {
+    if (WiFi.status() != WL_CONNECTED) {
+        return;
+    }
+
+    configTzTime(
+        appconfig::kTimeZonePosix,
+        appconfig::kNtpServerPrimary,
+        appconfig::kNtpServerSecondary,
+        appconfig::kNtpServerTertiary);
+    timeConfigured = true;
+
+    time_t now = time(nullptr);
+    if (now > 24UL * 60UL * 60UL) {
+        return;
+    }
+
+    unsigned long waitStartedMs = millis();
+    while (WiFi.status() == WL_CONNECTED && millis() - waitStartedMs < 10000UL) {
+        delay(200);
+        now = time(nullptr);
+        if (now > 24UL * 60UL * 60UL) {
+            break;
+        }
+    }
 }
 
 static void startAccessPoint(const String &deviceName) {
@@ -61,6 +91,7 @@ static void applyNetworkSettings() {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
+        configureTimeSync();
         if (lockAppState()) {
             gAppState.wifiConnected = true;
             gAppState.setupMode = false;
@@ -85,6 +116,7 @@ static void enterOfflineMode() {
     WiFi.mode(WIFI_OFF);
     setupMode = false;
     offlineMode = true;
+    timeConfigured = false;
 
     if (lockAppState()) {
         gAppState.setupMode = false;
@@ -114,6 +146,10 @@ void loop() {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
+        if (!timeConfigured) {
+            configureTimeSync();
+        }
+
         if (lockAppState()) {
             if (!gAppState.wifiConnected) {
                 gAppState.wifiConnected = true;

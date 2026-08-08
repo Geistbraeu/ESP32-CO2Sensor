@@ -1,5 +1,7 @@
 ﻿#include "web/portal_page.h"
 
+#include <time.h>
+
 #include <WiFi.h>
 
 #include "app_config.h"
@@ -46,6 +48,35 @@ String formatPressure(float value) {
     constexpr float kMmHgPerHpa = 0.75006156f;
     return String(value * kMmHgPerHpa, 1) + " mmHg";
 }
+
+String localTimeLabel() {
+    const time_t now = time(nullptr);
+    if (now <= 24UL * 60UL * 60UL) {
+        return String("Time: not synced");
+    }
+
+    struct tm localTimeInfo;
+    if (localtime_r(&now, &localTimeInfo) == nullptr) {
+        return String("Time: unavailable");
+    }
+
+    char buffer[16];
+    if (strftime(buffer, sizeof(buffer), "%H:%M:%S", &localTimeInfo) == 0) {
+        return String("Time: unavailable");
+    }
+
+    return String(buffer);
+}
+
+String formatMinutesAsClock(uint16_t totalMinutes) {
+    totalMinutes = static_cast<uint16_t>(totalMinutes % appconfig::kMinutesPerDay);
+    const uint8_t hours = static_cast<uint8_t>(totalMinutes / 60U);
+    const uint8_t minutes = static_cast<uint8_t>(totalMinutes % 60U);
+
+    String hourPart = hours < 10 ? String("0") + String(hours) : String(hours);
+    String minutePart = minutes < 10 ? String("0") + String(minutes) : String(minutes);
+    return hourPart + ":" + minutePart;
+}
 }  // namespace
 
 namespace webpage {String render() {
@@ -60,7 +91,7 @@ namespace webpage {String render() {
         html.reserve(22000);
         html += R"HTML(<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">)HTML";
         html += R"HTML(<title>ESP32 CO2 Air Portal</title><style>:root{--bg:#07111e;--surface:#111a2d;--surface2:#17233b;--border:#263553;--accent:#59c3ff;--accent2:#7cdbb2;--ok:#48d597;--warn:#f8c35f;--danger:#f27b7b;--text:#e8f2ff;--muted:#90a4c2;--radius:16px;--radius-sm:10px}*{box-sizing:border-box;margin:0;padding:0}body{background:radial-gradient(circle at top,#10213a 0,#07111e 45%,#050b14 100%);color:var(--text);font-family:Segoe UI,system-ui,-apple-system,sans-serif;min-height:100vh;padding:18px}.container{max-width:980px;margin:0 auto}.header{background:linear-gradient(135deg,#14233f 0,#10192d 100%);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.header-left h1{font-size:1.35rem;font-weight:800;margin-bottom:4px}.title-gradient{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}.header-left p{color:var(--muted);font-size:.86rem}.header-badge{padding:8px 12px;border-radius:999px;background:rgba(89,195,255,.12);border:1px solid rgba(89,195,255,.25);color:#bfe9ff;font-weight:700;font-size:.83rem}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px}.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px}.card-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:4px}.card-value{font-size:1.25rem;font-weight:800}.card-value.accent{color:var(--accent)}.card-value.ok{color:var(--ok)}.card-value.warn{color:var(--warn)}.card-value.danger{color:var(--danger)}.status-message{margin-bottom:16px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid transparent;font-size:.88rem;font-weight:600}.status-message.success{background:rgba(72,213,151,.12);border-color:rgba(72,213,151,.3);color:#a7f0ca}.status-message.error{background:rgba(242,123,123,.12);border-color:rgba(242,123,123,.3);color:#ffb0b0}.tabs-nav{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;overflow:hidden;flex-wrap:wrap}.tab-btn{flex:1;min-width:120px;padding:13px 14px;background:transparent;border:none;color:var(--muted);font-size:.88rem;font-weight:700;cursor:pointer;transition:background .2s,color .2s,border-color .2s;border-bottom:2px solid transparent;display:flex;align-items:center;justify-content:center;gap:6px}.tab-btn:hover{background:var(--surface2);color:var(--text)}.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);background:var(--surface2)}.tabs-body{background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:20px;margin-bottom:16px}.tab-panel{display:none}.tab-panel.active{display:block}.setting-group{margin-bottom:14px}.setting-label{display:block;font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px}.setting-row{display:flex;gap:8px;align-items:stretch}.setting-row input,.setting-row select,.setting-group input,.setting-group select{flex:1;width:100%;background:#0a1322;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:10px 12px;font-size:.92rem;outline:none;transition:border-color .2s}.setting-row input:focus,.setting-row select:focus,.setting-group input:focus,.setting-group select:focus{border-color:var(--accent)}.setting-row select option,.setting-group select option{background:var(--surface)}.btn-set,.btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#06111d;border:none;border-radius:var(--radius-sm);padding:10px 18px;font-size:.86rem;font-weight:800;cursor:pointer;white-space:nowrap;transition:opacity .15s,transform .1s;text-decoration:none;display:inline-block}.btn:hover,.btn-set:hover{opacity:.88}.btn:active,.btn-set:active{transform:scale(.98)}.divider{border:none;border-top:1px solid var(--border);margin:16px 0}.section-title{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent2);margin-bottom:4px;font-weight:800}.cloud-last-sync{font-size:.72rem;color:var(--muted);margin-bottom:12px}.muted{color:var(--muted);font-size:.9rem}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stack{display:grid;gap:12px}.small{font-size:.82rem}.hint{margin-top:8px;color:var(--muted);font-size:.82rem}.footer-actions{display:flex;gap:10px;flex-wrap:wrap}.pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#0a1322;border:1px solid var(--border);color:#cde7ff;font-size:.78rem}.air-icon{font-size:1.4rem;line-height:1}</style></head><body><div class="container">)HTML";
-        html += "<div class=header><div class=header-left><h1><span class=air-icon>&#128168;</span> <span class=title-gradient>CO2 Air Portal</span></h1><p><span id=device-name>" + escapeHtml(config.deviceName) + "</span> &nbsp;&#183;&nbsp; <span id=device-ip>" + escapeHtml(emptyIfBlank(state.ipAddress.length() > 0 ? state.ipAddress : state.apAddress)) + "</span></p></div><div class=header-badge id=portal-mode>" + String(state.setupMode ? "AP Setup" : "Online") + "</div></div>";
+        html += "<div class=header><div class=header-left><h1><span class=air-icon>&#128168;</span> <span class=title-gradient>CO2 Air Portal</span></h1><p><span id=device-name>" + escapeHtml(config.deviceName) + "</span> &nbsp;&#183;&nbsp; <span id=device-ip>" + escapeHtml(emptyIfBlank(state.ipAddress.length() > 0 ? state.ipAddress : state.apAddress)) + "</span></p></div><div class=stack style='justify-items:end;gap:8px'><div class=header-badge id=portal-mode>" + String(state.setupMode ? "AP Setup" : "Online") + "</div><div class='pill small' id=current-time>" + escapeHtml(localTimeLabel()) + "</div></div></div>";
         html += "<div class=cards><div class=card><div class=card-label>CO2</div><div class=card-value accent";
         html += state.sensorConnected ? "" : " warn";
         html += " id=co2-value>" + String(state.co2Ppm > 0 ? state.co2Ppm : state.lastValidPpm) + " ppm</div></div>";
@@ -100,6 +131,7 @@ namespace webpage {String render() {
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Sensor read interval, ms</label><div class=setting-row><input type=number min=5000 name=sensorReadIntervalMs value='" + String(config.sensorReadIntervalMs) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Controls how often the sensor task polls the CO2 sensor (minimum 5000 ms).</p></div></form>";
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Sensor altitude, m</label><div class=setting-row><input type=number min=0 max=3000 name=sensorAltitudeMeters value='" + String(config.sensorAltitudeMeters) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Used for atmospheric pressure compensation in SCD40 (0-3000 m).</p></div></form>";
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Display switch interval, ms</label><div class=setting-row><input type=number min=1000 max=60000 name=displaySwitchIntervalMs value='" + String(config.displaySwitchIntervalMs) + "'><button class=btn-set type=submit>Set</button></div><p class=hint>Controls how often OLED toggles between CO2 and pressure (1000-60000 ms).</p></div></form>";
+        html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Display DnD mode</label><div class=setting-row><select name=dndEnabled><option value=0" + String(config.dndEnabled ? "" : " selected") + ">Disabled</option><option value=1" + String(config.dndEnabled ? " selected" : "") + ">Enabled</option></select></div><div class=grid style='margin-top:10px'><div><label class=setting-label style='margin-bottom:4px'>Start time</label><input type=time name=dndStartTime step=60 value='" + formatMinutesAsClock(config.dndStartMinutes) + "'></div><div><label class=setting-label style='margin-bottom:4px'>End time</label><input type=time name=dndEndTime step=60 value='" + formatMinutesAsClock(config.dndEndMinutes) + "'></div></div><div class=grid style='margin-top:10px'><div><label class=setting-label style='margin-bottom:4px'>Normal brightness, 0-255</label><input type=number min=0 max=255 name=normalBrightnessLevel value='" + String(config.normalBrightnessLevel) + "'></div><div><label class=setting-label style='margin-bottom:4px'>Brightness in DnD, 0-255</label><input type=number min=0 max=255 name=dndBrightnessLevel value='" + String(config.dndBrightnessLevel) + "'></div></div><div class=setting-group style='margin-top:10px'><div class=setting-row><button class=btn-set type=submit>Save DnD</button></div></div><p class=hint>Interval supports crossing midnight, for example 23:00 to 07:00.</p></div></form>";
         html += "<form action=/save method=post><div class=setting-group><label class=setting-label>Buzzer settings</label><div class=setting-row><label class=hint style='min-width:140px'>Frequency, Hz</label><input type=number min=100 max=5000 name=buzzerFrequencyHz value='" + String(config.buzzerFrequencyHz) + "'></div><div class=setting-row><label class=hint style='min-width:140px'>Tone duration, ms</label><input type=number min=50 max=5000 name=buzzerToneDurationMs value='" + String(config.buzzerToneDurationMs) + "'></div><div class=setting-row><label class=hint style='min-width:140px'>Pause duration, ms</label><input type=number min=50 max=5000 name=buzzerPauseDurationMs value='" + String(config.buzzerPauseDurationMs) + "'></div><div class=footer-actions><button class=btn-set type=submit>Save buzzer</button></div><p class=hint>Frequency, tone and pause are used for the test pattern. The test runs for 10 seconds or until Stop is pressed.</p></div></form>";
         html += "<div class=setting-group><label class=setting-label>Buzzer test</label><div class=setting-row><button class=btn-set type=button onclick=\"fetch('/buzzer-test',{method:'POST'}).then(()=>location.reload())\">Start test</button><button class=btn type=button onclick=\"fetch('/buzzer-stop',{method:'POST'}).then(()=>location.reload())\" style='background:linear-gradient(135deg,#f27b7b,#f8c35f);color:#20120e'>Stop</button></div></div>";
         html += "</div></div>";
@@ -282,6 +314,7 @@ async function refreshLiveData() {
         const deviceName = document.getElementById('device-name');
         const deviceIp = document.getElementById('device-ip');
         const portalMode = document.getElementById('portal-mode');
+        const currentTime = document.getElementById('current-time');
         const statusMessage = document.getElementById('status-message');
         const sensorStatus = document.getElementById('sensor-status');
         const tsLastSync = document.getElementById('ts-last-sync');
@@ -317,6 +350,7 @@ async function refreshLiveData() {
         if (deviceName) deviceName.textContent = data.deviceName || '';
         if (deviceIp) deviceIp.textContent = data.ipAddress || data.apAddress || '-';
         if (portalMode) portalMode.textContent = data.setupMode ? 'AP Setup' : 'Online';
+        if (currentTime) currentTime.textContent = data.localTime || 'Time: unavailable';
         if (tsLastSync) tsLastSync.textContent = formatLastSync(data.thingSpeakLastSyncMs || 0);
         if (httpLastSync) httpLastSync.textContent = formatLastSync(data.customHttpLastSyncMs || 0);
         if (sensorStatus) {

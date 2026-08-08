@@ -1,6 +1,8 @@
 ﻿#include "web/web_server.h"
 #include "web/portal_page.h"
 
+#include <time.h>
+
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <HTTPUpdate.h>
@@ -117,6 +119,30 @@ String trimmedArg(const char *name) {
     return value;
 }
 
+bool parseMinuteOfDayFromTime(String rawValue, uint16_t &minutesOut) {
+    rawValue.trim();
+    if (rawValue.length() != 5 || rawValue[2] != ':') {
+        return false;
+    }
+
+    const char h0 = rawValue[0];
+    const char h1 = rawValue[1];
+    const char m0 = rawValue[3];
+    const char m1 = rawValue[4];
+    if (h0 < '0' || h0 > '9' || h1 < '0' || h1 > '9' || m0 < '0' || m0 > '9' || m1 < '0' || m1 > '9') {
+        return false;
+    }
+
+    const uint8_t hours = static_cast<uint8_t>((h0 - '0') * 10 + (h1 - '0'));
+    const uint8_t minutes = static_cast<uint8_t>((m0 - '0') * 10 + (m1 - '0'));
+    if (hours > 23 || minutes > 59) {
+        return false;
+    }
+
+    minutesOut = static_cast<uint16_t>(hours * 60U + minutes);
+    return true;
+}
+
 String escapeHtml(String value) {
     value.replace("&", "&amp;");
     value.replace("<", "&lt;");
@@ -164,12 +190,37 @@ String lastSyncLabel(unsigned long lastSyncMs, unsigned long nowMs) {
     return String("Last sync: ") + String(elapsedMinutes) + "m ago";
 }
 
+String localTimeString(bool &syncedOut) {
+    const time_t now = time(nullptr);
+    if (now <= 24UL * 60UL * 60UL) {
+        syncedOut = false;
+        return String("Time: not synced");
+    }
+
+    struct tm localTimeInfo;
+    if (localtime_r(&now, &localTimeInfo) == nullptr) {
+        syncedOut = false;
+        return String("Time: unavailable");
+    }
+
+    char buffer[16];
+    if (strftime(buffer, sizeof(buffer), "%H:%M:%S", &localTimeInfo) == 0) {
+        syncedOut = false;
+        return String("Time: unavailable");
+    }
+
+    syncedOut = true;
+    return String(buffer);
+}
+
 String statusJson() {
     clearWebMessageIfExpired();
 
     SettingsSnapshot config = getSettingsSnapshot();
     RuntimeSnapshot state = getRuntimeSnapshot();
     unsigned long nowMs = millis();
+    bool timeSynced = false;
+    const String localTime = localTimeString(timeSynced);
     String json = "{";
     json += "\"deviceName\":\"" + jsonEscape(config.deviceName) + "\",";
     json += "\"wifiConnected\":" + String(state.wifiConnected ? "true" : "false") + ",";
@@ -192,11 +243,18 @@ String statusJson() {
     json += ",\"sensorReadIntervalMs\":" + String(config.sensorReadIntervalMs);
     json += ",\"sensorAltitudeMeters\":" + String(config.sensorAltitudeMeters);
     json += ",\"displaySwitchIntervalMs\":" + String(config.displaySwitchIntervalMs);
+    json += ",\"dndEnabled\":" + String(config.dndEnabled ? "true" : "false");
+    json += ",\"dndStartMinutes\":" + String(config.dndStartMinutes);
+    json += ",\"dndEndMinutes\":" + String(config.dndEndMinutes);
+    json += ",\"normalBrightnessLevel\":" + String(config.normalBrightnessLevel);
+    json += ",\"dndBrightnessLevel\":" + String(config.dndBrightnessLevel);
     json += ",\"thingSpeakIntervalSeconds\":" + String(config.thingSpeakIntervalSeconds);
     json += ",\"thingSpeakLastSyncMs\":" + String(cloudmanager::lastThingSpeakSyncMs());
     json += ",\"customHttpIntervalSeconds\":" + String(config.customHttpIntervalSeconds);
     json += ",\"customHttpLastSyncMs\":" + String(cloudmanager::lastCustomHttpSyncMs());
     json += ",\"nowMs\":" + String(nowMs);
+    json += ",\"timeSynced\":" + String(timeSynced ? "true" : "false");
+    json += ",\"localTime\":\"" + jsonEscape(localTime) + "\"";
     json += ",\"firmwareVersion\":\"" + jsonEscape(appconfig::kFirmwareVersion) + "\"";
     json += ",\"firmwareBuildDate\":\"" + jsonEscape(appconfig::firmwareBuildDateString()) + "\"";
     json += "}";
@@ -305,6 +363,101 @@ SaveResult processSaveRequest() {
                 "Display switch interval must be between " +
                     String(appconfig::kDisplaySwitchIntervalMinMs) + " and " +
                     String(appconfig::kDisplaySwitchIntervalMaxMs) + " ms");
+        }
+    }
+
+    const bool dndForm = server.hasArg("dndEnabled") || server.hasArg("dndStartMinutes") || server.hasArg("dndEndMinutes") || server.hasArg("dndStartTime") || server.hasArg("dndEndTime") || server.hasArg("normalBrightnessLevel") || server.hasArg("dndBrightnessLevel") || server.hasArg("normalBrightnessPercent") || server.hasArg("dndBrightnessPercent");
+    if (dndForm) {
+        bool dndEnabled = updated.dndEnabled;
+        if (server.hasArg("dndEnabled")) {
+            if (!Validation::parseBoolStrict(server.arg("dndEnabled"), dndEnabled)) {
+                addValidationIssue(result, "dndEnabled", "DnD enabled flag must be 0 or 1");
+            }
+        }
+        updated.dndEnabled = dndEnabled;
+
+        if (server.hasArg("dndStartTime")) {
+            uint16_t parsedStartMinutes = 0;
+            if (!parseMinuteOfDayFromTime(server.arg("dndStartTime"), parsedStartMinutes)) {
+                addValidationIssue(result, "dndStartTime", "DnD start time must be in HH:MM format");
+            } else {
+                updated.dndStartMinutes = parsedStartMinutes;
+            }
+        }
+
+        if (server.hasArg("dndEndTime")) {
+            uint16_t parsedEndMinutes = 0;
+            if (!parseMinuteOfDayFromTime(server.arg("dndEndTime"), parsedEndMinutes)) {
+                addValidationIssue(result, "dndEndTime", "DnD end time must be in HH:MM format");
+            } else {
+                updated.dndEndMinutes = parsedEndMinutes;
+            }
+        }
+
+        if (server.hasArg("dndStartMinutes")) {
+            unsigned long parsedStartMinutes = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("dndStartMinutes"), parsedStartMinutes)) {
+                addValidationIssue(result, "dndStartMinutes", "DnD start must be a positive integer");
+            } else if (Validation::isValidDndMinuteOfDay(parsedStartMinutes)) {
+                updated.dndStartMinutes = static_cast<uint16_t>(parsedStartMinutes);
+            } else {
+                addValidationIssue(result, "dndStartMinutes", "DnD start must be in 0..1439 minutes");
+            }
+        }
+
+        if (server.hasArg("dndEndMinutes")) {
+            unsigned long parsedEndMinutes = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("dndEndMinutes"), parsedEndMinutes)) {
+                addValidationIssue(result, "dndEndMinutes", "DnD end must be a positive integer");
+            } else if (Validation::isValidDndMinuteOfDay(parsedEndMinutes)) {
+                updated.dndEndMinutes = static_cast<uint16_t>(parsedEndMinutes);
+            } else {
+                addValidationIssue(result, "dndEndMinutes", "DnD end must be in 0..1439 minutes");
+            }
+        }
+
+        if (server.hasArg("normalBrightnessLevel")) {
+            unsigned long parsedBrightnessLevel = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("normalBrightnessLevel"), parsedBrightnessLevel)) {
+                addValidationIssue(result, "normalBrightnessLevel", "Normal brightness must be an integer in 0..255");
+            } else if (Validation::isValidBrightnessLevel(parsedBrightnessLevel)) {
+                updated.normalBrightnessLevel = static_cast<uint8_t>(parsedBrightnessLevel);
+            } else {
+                addValidationIssue(result, "normalBrightnessLevel", "Normal brightness must be between 0 and 255");
+            }
+        }
+
+        if (server.hasArg("normalBrightnessPercent")) {
+            unsigned long parsedBrightnessPercent = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("normalBrightnessPercent"), parsedBrightnessPercent)) {
+                addValidationIssue(result, "normalBrightnessPercent", "Legacy normal brightness must be an integer percent");
+            } else if (parsedBrightnessPercent <= 100UL) {
+                updated.normalBrightnessLevel = static_cast<uint8_t>((static_cast<uint16_t>(appconfig::kOledBaseContrast) * parsedBrightnessPercent) / 100UL);
+            } else {
+                addValidationIssue(result, "normalBrightnessPercent", "Legacy normal brightness must be between 0 and 100%");
+            }
+        }
+
+        if (server.hasArg("dndBrightnessLevel")) {
+            unsigned long parsedBrightnessLevel = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("dndBrightnessLevel"), parsedBrightnessLevel)) {
+                addValidationIssue(result, "dndBrightnessLevel", "DnD brightness must be an integer in 0..255");
+            } else if (Validation::isValidBrightnessLevel(parsedBrightnessLevel)) {
+                updated.dndBrightnessLevel = static_cast<uint8_t>(parsedBrightnessLevel);
+            } else {
+                addValidationIssue(result, "dndBrightnessLevel", "DnD brightness must be between 0 and 255");
+            }
+        }
+
+        if (server.hasArg("dndBrightnessPercent")) {
+            unsigned long parsedBrightnessPercent = 0;
+            if (!Validation::parseUnsignedLongStrict(server.arg("dndBrightnessPercent"), parsedBrightnessPercent)) {
+                addValidationIssue(result, "dndBrightnessPercent", "Legacy DnD brightness must be an integer percent");
+            } else if (parsedBrightnessPercent <= 100UL) {
+                updated.dndBrightnessLevel = static_cast<uint8_t>((static_cast<uint16_t>(appconfig::kOledBaseContrast) * parsedBrightnessPercent) / 100UL);
+            } else {
+                addValidationIssue(result, "dndBrightnessPercent", "Legacy DnD brightness must be between 0 and 100%");
+            }
         }
     }
 
