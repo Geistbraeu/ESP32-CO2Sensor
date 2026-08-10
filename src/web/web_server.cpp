@@ -31,11 +31,17 @@ unsigned long buzzerTestStartedAtMs = 0;
 unsigned long buzzerTransitionAtMs = 0;
 
 void stopBuzzerTest() {
+    const bool wasToneActive = buzzerToneActive;
     buzzerTestActive = false;
     buzzerToneActive = false;
     buzzerTestStartedAtMs = 0;
     buzzerTransitionAtMs = 0;
-    noTone(appconfig::kBuzzerPin);
+    if (wasToneActive) {
+        noTone(appconfig::kBuzzerPin);
+    } else {
+        digitalWrite(appconfig::kBuzzerPin, LOW);
+    }
+    Serial.println("[Buzzer] stopped");
 }
 
 void updateBuzzerTestState() {
@@ -58,6 +64,7 @@ void updateBuzzerTestState() {
         buzzerToneActive = true;
         buzzerTransitionAtMs = nowMs;
         tone(appconfig::kBuzzerPin, static_cast<unsigned int>(config.buzzerFrequencyHz));
+        Serial.printf("[Buzzer] tone on, freq=%u Hz\n", static_cast<unsigned int>(config.buzzerFrequencyHz));
         return;
     }
 
@@ -66,11 +73,13 @@ void updateBuzzerTestState() {
             noTone(appconfig::kBuzzerPin);
             buzzerToneActive = false;
             buzzerTransitionAtMs = nowMs;
+            Serial.println("[Buzzer] tone off");
         }
     } else if (nowMs - buzzerTransitionAtMs >= config.buzzerPauseDurationMs) {
         tone(appconfig::kBuzzerPin, static_cast<unsigned int>(config.buzzerFrequencyHz));
         buzzerToneActive = true;
         buzzerTransitionAtMs = nowMs;
+        Serial.printf("[Buzzer] tone on, freq=%u Hz\n", static_cast<unsigned int>(config.buzzerFrequencyHz));
     }
 }
 
@@ -623,6 +632,7 @@ void handleBuzzerTest() {
         buzzerTestStartedAtMs = millis();
         buzzerTransitionAtMs = buzzerTestStartedAtMs;
         tone(appconfig::kBuzzerPin, static_cast<unsigned int>(config.buzzerFrequencyHz));
+        Serial.printf("[Buzzer] started, freq=%u Hz\n", static_cast<unsigned int>(config.buzzerFrequencyHz));
         setWebMessage("Buzzer test started.", 5000);
     }
 

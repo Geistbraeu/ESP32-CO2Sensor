@@ -60,7 +60,7 @@ void setup() {
   applocks::initI2cMutex();
 
   pinMode(appconfig::kBuzzerPin, OUTPUT);
-  noTone(appconfig::kBuzzerPin);
+  digitalWrite(appconfig::kBuzzerPin, LOW);
 
   settings::begin();
   wifiportal::begin();
